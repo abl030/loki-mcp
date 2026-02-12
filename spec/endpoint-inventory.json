@@ -18,7 +18,11 @@
         {"name": "direction", "type": "str", "required": false, "default": "backward", "description": "Log ordering", "enum": ["forward", "backward"]}
       ],
       "response_fields": ["status", "data.resultType", "data.result"],
-      "notes": "resultType is 'streams' for log queries, 'vector' for metric queries"
+      "filterable": true,
+      "filter_path": "result",
+      "filter_label_key": "metric",
+      "known_fields": ["__name__"],
+      "notes": "resultType is 'streams' for log queries, 'vector' for metric queries. For stream results, filter on stream labels (host, container, etc.)."
     },
     {
       "id": "query_range",
@@ -38,7 +42,11 @@
         {"name": "step", "type": "str", "required": false, "description": "Query resolution step width (e.g. '5m'). Only for metric queries."}
       ],
       "response_fields": ["status", "data.resultType", "data.result"],
-      "notes": "resultType is 'streams' for log queries, 'matrix' for metric queries"
+      "filterable": true,
+      "filter_path": "result",
+      "filter_label_key": "stream",
+      "known_fields": ["host", "container", "unit", "job", "service_name"],
+      "notes": "resultType is 'streams' for log queries, 'matrix' for metric queries. For stream results, filter on stream labels (host, container, etc.)."
     },
     {
       "id": "list_labels",
@@ -89,7 +97,11 @@
         {"name": "end", "type": "str", "required": false, "description": "End timestamp"}
       ],
       "response_fields": ["status", "data"],
-      "notes": "data is a list of label set objects. match parameter sent as match[]."
+      "filterable": true,
+      "filter_path": null,
+      "filter_label_key": null,
+      "known_fields": ["host", "container", "unit", "job", "service_name"],
+      "notes": "data is a list of label set objects. match parameter sent as match[]. Filter with fields/query on label names."
     },
     {
       "id": "index_stats",
@@ -125,7 +137,11 @@
         {"name": "targetLabels", "type": "str", "required": false, "description": "Comma-separated labels to aggregate by (e.g. 'host,container')"}
       ],
       "response_fields": ["status", "data.resultType", "data.result"],
-      "notes": "Requires volume_enabled in Loki config"
+      "filterable": true,
+      "filter_path": "result",
+      "filter_label_key": "metric",
+      "known_fields": ["host", "container", "unit", "job", "service_name"],
+      "notes": "Requires volume_enabled in Loki config. Filter on label names used in aggregation."
     },
     {
       "id": "index_volume_range",
@@ -145,7 +161,11 @@
         {"name": "targetLabels", "type": "str", "required": false, "description": "Comma-separated labels to aggregate by"}
       ],
       "response_fields": ["status", "data.resultType", "data.result"],
-      "notes": "Requires volume_enabled in Loki config"
+      "filterable": true,
+      "filter_path": "result",
+      "filter_label_key": "metric",
+      "known_fields": ["host", "container", "unit", "job", "service_name"],
+      "notes": "Requires volume_enabled in Loki config. Filter on label names used in aggregation."
     },
     {
       "id": "detect_patterns",
@@ -318,7 +338,11 @@
       "danger": false,
       "parameters": [],
       "response_fields": ["request_id", "start_time", "end_time", "query", "status", "created_at"],
-      "notes": ""
+      "filterable": true,
+      "filter_path": null,
+      "filter_label_key": null,
+      "known_fields": ["request_id", "start_time", "end_time", "query", "status", "created_at"],
+      "notes": "Filter with fields/query on response object fields."
     },
     {
       "id": "cancel_delete_request",

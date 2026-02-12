@@ -244,6 +244,68 @@ def _handle_error(resp: httpx.Response, tool_name: str) -> str | None:
     return _format_response(error_data, f"Error from {tool_name}: HTTP {resp.status_code}")
 
 
+def _filter_results(
+    data: Any,
+    fields: str = "",
+    query: dict | None = None,
+    filter_path: str | None = None,
+    filter_label_key: str | None = None,
+) -> Any:
+    """Apply client-side filtering to list results.
+
+    Args:
+        data: The unwrapped API response data.
+        fields: Comma-separated field names to keep (empty = all).
+        query: Dict of key-value pairs; only items where all pairs match are kept.
+        filter_path: Dot path to the list within data (e.g. "result"). None = data is the list.
+        filter_label_key: If items are Loki-style {stream: {labels}, values: [...]},
+                          this is the key holding the label dict (e.g. "stream", "metric").
+                          None = items are flat dicts.
+    """
+    if not fields and not query:
+        return data
+
+    # Extract the list to filter
+    items = data
+    if filter_path and isinstance(data, dict):
+        items = data.get(filter_path, data)
+
+    if not isinstance(items, list):
+        return data
+
+    field_set = {f.strip() for f in fields.split(",") if f.strip()} if fields else set()
+
+    filtered = []
+    for item in items:
+        # Get the dict to match/filter against
+        if filter_label_key and isinstance(item, dict):
+            labels = item.get(filter_label_key, {})
+        elif isinstance(item, dict):
+            labels = item
+        else:
+            # Non-dict items (strings, etc.) can't be filtered
+            filtered.append(item)
+            continue
+
+        # Apply query filter
+        if query:
+            if not all(str(labels.get(k, "")) == str(v) for k, v in query.items()):
+                continue
+
+        # Apply field projection
+        if field_set and filter_label_key and isinstance(item, dict):
+            projected_labels = {k: v for k, v in labels.items() if k in field_set}
+            item = {**item, filter_label_key: projected_labels}
+        elif field_set and isinstance(item, dict) and not filter_label_key:
+            item = {k: v for k, v in item.items() if k in field_set}
+
+        filtered.append(item)
+
+    if filter_path and isinstance(data, dict):
+        return {**data, filter_path: filtered}
+    return filtered
+
+
 # ---------------------------------------------------------------------------
 # MCP Server
 # ---------------------------------------------------------------------------
@@ -270,6 +332,8 @@ async def loki_query_instant(
     time: str = "",
     limit: int = 100,
     direction: str = "backward",
+    fields: str = "",
+    filter_query: dict | None = None,
 ) -> str:
     """Run an instant LogQL query at a single point in time. Returns log lines or metric vectors.
 
@@ -278,8 +342,12 @@ async def loki_query_instant(
         time: Evaluation timestamp (RFC3339 or Unix epoch). Defaults to now.
         limit: Maximum number of entries to return
         direction: Log ordering. Valid values: 'forward', 'backward'
+        fields: Comma-separated field names to include in results (empty = all).
+        filter_query: Dict of key-value pairs to filter results (e.g. {"host": "doc1"}). Only matching items returned.
 
-    Note: resultType is 'streams' for log queries, 'vector' for metric queries
+    Known fields: __name__
+
+    Note: resultType is 'streams' for log queries, 'vector' for metric queries. For stream results, filter on stream labels (host, container, etc.).
     """
     if not _module_enabled("query"):
         return _format_response({"error": "Module 'query' is not enabled. Set LOKI_MODULES to include it."})
@@ -301,6 +369,14 @@ async def loki_query_instant(
     if err := _handle_error(resp, "loki_query_instant"):
         return err
     result = _unwrap_loki_response(resp)
+    if fields or filter_query:
+        result = _filter_results(
+            result,
+            fields=fields,
+            query=filter_query,
+            filter_path="result",
+            filter_label_key="metric",
+        )
     if isinstance(result, dict) and "result" in result:
         entries = result["result"]
         return _format_response(result, f"Found {len(entries)} result(s)")
@@ -316,6 +392,8 @@ async def loki_query_range(
     limit: int = 100,
     direction: str = "backward",
     step: str = "",
+    fields: str = "",
+    filter_query: dict | None = None,
 ) -> str:
     """Run a LogQL query over a time range. Returns log streams or metric matrices.
 
@@ -326,8 +404,12 @@ async def loki_query_range(
         limit: Maximum number of entries to return
         direction: Log ordering. Valid values: 'forward', 'backward'
         step: Query resolution step width (e.g. '5m'). Only for metric queries.
+        fields: Comma-separated field names to include in results (empty = all).
+        filter_query: Dict of key-value pairs to filter results (e.g. {"host": "doc1"}). Only matching items returned.
 
-    Note: resultType is 'streams' for log queries, 'matrix' for metric queries
+    Known fields: host, container, unit, job, service_name
+
+    Note: resultType is 'streams' for log queries, 'matrix' for metric queries. For stream results, filter on stream labels (host, container, etc.).
     """
     if not _module_enabled("query"):
         return _format_response({"error": "Module 'query' is not enabled. Set LOKI_MODULES to include it."})
@@ -353,6 +435,14 @@ async def loki_query_range(
     if err := _handle_error(resp, "loki_query_range"):
         return err
     result = _unwrap_loki_response(resp)
+    if fields or filter_query:
+        result = _filter_results(
+            result,
+            fields=fields,
+            query=filter_query,
+            filter_path="result",
+            filter_label_key="stream",
+        )
     if isinstance(result, dict) and "result" in result:
         entries = result["result"]
         return _format_response(result, f"Found {len(entries)} result(s)")
@@ -441,6 +531,8 @@ async def loki_list_series(
     match: str,
     start: str = "",
     end: str = "",
+    fields: str = "",
+    filter_query: dict | None = None,
 ) -> str:
     """List all log streams (label sets) matching a set of stream selectors.
 
@@ -448,8 +540,12 @@ async def loki_list_series(
         match: Stream selector(s) to match. At least one match[] parameter required.
         start: Start timestamp
         end: End timestamp
+        fields: Comma-separated field names to include in results (empty = all).
+        filter_query: Dict of key-value pairs to filter results (e.g. {"host": "doc1"}). Only matching items returned.
 
-    Note: data is a list of label set objects. match parameter sent as match[].
+    Known fields: host, container, unit, job, service_name
+
+    Note: data is a list of label set objects. match parameter sent as match[]. Filter with fields/query on label names.
     """
     if not _module_enabled("query"):
         return _format_response({"error": "Module 'query' is not enabled. Set LOKI_MODULES to include it."})
@@ -469,6 +565,14 @@ async def loki_list_series(
     if err := _handle_error(resp, "loki_list_series"):
         return err
     result = _unwrap_loki_response(resp)
+    if fields or filter_query:
+        result = _filter_results(
+            result,
+            fields=fields,
+            query=filter_query,
+            filter_path=None,
+            filter_label_key=None,
+        )
     return _format_response(result)
 
 # --- loki_index_stats (index) ---
@@ -517,6 +621,8 @@ async def loki_index_volume(
     end: str = "",
     limit: int = 100,
     targetLabels: str = "",
+    fields: str = "",
+    filter_query: dict | None = None,
 ) -> str:
     """Get log volume aggregated by labels. Shows which streams generate the most logs.
 
@@ -526,8 +632,12 @@ async def loki_index_volume(
         end: End timestamp
         limit: Maximum number of volumes to return
         targetLabels: Comma-separated labels to aggregate by (e.g. 'host,container')
+        fields: Comma-separated field names to include in results (empty = all).
+        filter_query: Dict of key-value pairs to filter results (e.g. {"host": "doc1"}). Only matching items returned.
 
-    Note: Requires volume_enabled in Loki config
+    Known fields: host, container, unit, job, service_name
+
+    Note: Requires volume_enabled in Loki config. Filter on label names used in aggregation.
     """
     if not _module_enabled("index"):
         return _format_response({"error": "Module 'index' is not enabled. Set LOKI_MODULES to include it."})
@@ -551,6 +661,14 @@ async def loki_index_volume(
     if err := _handle_error(resp, "loki_index_volume"):
         return err
     result = _unwrap_loki_response(resp)
+    if fields or filter_query:
+        result = _filter_results(
+            result,
+            fields=fields,
+            query=filter_query,
+            filter_path="result",
+            filter_label_key="metric",
+        )
     if isinstance(result, dict) and "result" in result:
         entries = result["result"]
         return _format_response(result, f"Found {len(entries)} result(s)")
@@ -566,6 +684,8 @@ async def loki_index_volume_range(
     limit: int = 100,
     step: str = "",
     targetLabels: str = "",
+    fields: str = "",
+    filter_query: dict | None = None,
 ) -> str:
     """Get log volume over time, aggregated by labels. Shows volume trends.
 
@@ -576,8 +696,12 @@ async def loki_index_volume_range(
         limit: Maximum number of volumes to return
         step: Query resolution step width (e.g. '5m')
         targetLabels: Comma-separated labels to aggregate by
+        fields: Comma-separated field names to include in results (empty = all).
+        filter_query: Dict of key-value pairs to filter results (e.g. {"host": "doc1"}). Only matching items returned.
 
-    Note: Requires volume_enabled in Loki config
+    Known fields: host, container, unit, job, service_name
+
+    Note: Requires volume_enabled in Loki config. Filter on label names used in aggregation.
     """
     if not _module_enabled("index"):
         return _format_response({"error": "Module 'index' is not enabled. Set LOKI_MODULES to include it."})
@@ -603,6 +727,14 @@ async def loki_index_volume_range(
     if err := _handle_error(resp, "loki_index_volume_range"):
         return err
     result = _unwrap_loki_response(resp)
+    if fields or filter_query:
+        result = _filter_results(
+            result,
+            fields=fields,
+            query=filter_query,
+            filter_path="result",
+            filter_label_key="metric",
+        )
     if isinstance(result, dict) and "result" in result:
         entries = result["result"]
         return _format_response(result, f"Found {len(entries)} result(s)")
@@ -989,8 +1121,14 @@ async def loki_create_delete_request(
 
 @mcp.tool()
 async def loki_list_delete_requests(
+    fields: str = "",
+    filter_query: dict | None = None,
 ) -> str:
     """List all pending and processed delete requests.
+
+    Known fields: request_id, start_time, end_time, query, status, created_at
+
+    Note: Filter with fields/query on response object fields.
     """
     if not _module_enabled("delete"):
         return _format_response({"error": "Module 'delete' is not enabled. Set LOKI_MODULES to include it."})
@@ -1005,6 +1143,14 @@ async def loki_list_delete_requests(
     if err := _handle_error(resp, "loki_list_delete_requests"):
         return err
     result = _unwrap_loki_response(resp)
+    if fields or filter_query:
+        result = _filter_results(
+            result,
+            fields=fields,
+            query=filter_query,
+            filter_path=None,
+            filter_label_key=None,
+        )
     return _format_response(result)
 
 # --- loki_cancel_delete_request (delete) ---

@@ -144,6 +144,33 @@ class TestQuery:
         data = json.loads(result)
         assert isinstance(data, list)
 
+    def test_list_series_filter_query(self, loki_url):
+        """Test client-side filtering on list_series with filter_query."""
+        srv = _load_server()
+        result = _call(srv.loki_list_series,
+            match='{host=~".+"}',
+            filter_query={"host": "test-host-1"},
+        )
+        data = json.loads(result)
+        assert isinstance(data, list)
+        for item in data:
+            assert item.get("host") == "test-host-1"
+
+    def test_list_series_fields(self, loki_url):
+        """Test client-side field projection on list_series."""
+        srv = _load_server()
+        result = _call(srv.loki_list_series,
+            match='{host=~".+"}',
+            fields="host",
+        )
+        data = json.loads(result)
+        assert isinstance(data, list)
+        assert len(data) > 0
+        for item in data:
+            assert "host" in item
+            # Should only have the requested field
+            assert set(item.keys()) == {"host"}
+
     def test_format_query(self, loki_url):
         srv = _load_server()
         result = _call(srv.loki_format_query, query='{host="test-host-1"}')

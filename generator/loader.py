@@ -31,6 +31,10 @@ class Endpoint:
     response_fields: list[str] = field(default_factory=list)
     notes: str = ""
     followup: str = ""
+    filterable: bool = False
+    filter_path: str | None = None
+    filter_label_key: str | None = None
+    known_fields: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -86,6 +90,10 @@ def load_inventory(inventory_path: Path) -> LokiInventory:
                 response_fields=ep.get("response_fields", []),
                 notes=ep.get("notes", ""),
                 followup=ep.get("followup", ""),
+                filterable=ep.get("filterable", False),
+                filter_path=ep.get("filter_path"),
+                filter_label_key=ep.get("filter_label_key"),
+                known_fields=ep.get("known_fields", []),
             )
         )
 

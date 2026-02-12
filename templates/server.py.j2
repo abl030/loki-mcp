@@ -244,6 +244,68 @@ def _handle_error(resp: httpx.Response, tool_name: str) -> str | None:
     return _format_response(error_data, f"Error from {tool_name}: HTTP {resp.status_code}")
 
 
+def _filter_results(
+    data: Any,
+    fields: str = "",
+    query: dict | None = None,
+    filter_path: str | None = None,
+    filter_label_key: str | None = None,
+) -> Any:
+    """Apply client-side filtering to list results.
+
+    Args:
+        data: The unwrapped API response data.
+        fields: Comma-separated field names to keep (empty = all).
+        query: Dict of key-value pairs; only items where all pairs match are kept.
+        filter_path: Dot path to the list within data (e.g. "result"). None = data is the list.
+        filter_label_key: If items are Loki-style {stream: {labels}, values: [...]},
+                          this is the key holding the label dict (e.g. "stream", "metric").
+                          None = items are flat dicts.
+    """
+    if not fields and not query:
+        return data
+
+    # Extract the list to filter
+    items = data
+    if filter_path and isinstance(data, dict):
+        items = data.get(filter_path, data)
+
+    if not isinstance(items, list):
+        return data
+
+    field_set = {f.strip() for f in fields.split(",") if f.strip()} if fields else set()
+
+    filtered = []
+    for item in items:
+        # Get the dict to match/filter against
+        if filter_label_key and isinstance(item, dict):
+            labels = item.get(filter_label_key, {})
+        elif isinstance(item, dict):
+            labels = item
+        else:
+            # Non-dict items (strings, etc.) can't be filtered
+            filtered.append(item)
+            continue
+
+        # Apply query filter
+        if query:
+            if not all(str(labels.get(k, "")) == str(v) for k, v in query.items()):
+                continue
+
+        # Apply field projection
+        if field_set and filter_label_key and isinstance(item, dict):
+            projected_labels = {k: v for k, v in labels.items() if k in field_set}
+            item = {**item, filter_label_key: projected_labels}
+        elif field_set and isinstance(item, dict) and not filter_label_key:
+            item = {k: v for k, v in item.items() if k in field_set}
+
+        filtered.append(item)
+
+    if filter_path and isinstance(data, dict):
+        return {**data, filter_path: filtered}
+    return filtered
+
+
 # ---------------------------------------------------------------------------
 # MCP Server
 # ---------------------------------------------------------------------------
@@ -282,6 +344,10 @@ async def {{ ep.tool_name }}(
 {% for p in ep.optional_params %}
     {{ p.name }}: {{ p.type }} = {{ p.default }},
 {% endfor %}
+{% if ep.filterable %}
+    fields: str = "",
+    filter_query: dict | None = None,
+{% endif %}
 ) -> str:
     """{{ ep.description }}
 {% if ep.parameters %}
@@ -293,6 +359,14 @@ async def {{ ep.tool_name }}(
 {% if ep.mutation %}
         confirm: Must be True to execute. Returns preview if False.
 {% endif %}
+{% if ep.filterable %}
+        fields: Comma-separated field names to include in results (empty = all).
+        filter_query: Dict of key-value pairs to filter results (e.g. {"host": "doc1"}). Only matching items returned.
+{% endif %}
+{% endif %}
+{% if ep.filterable and ep.known_fields %}
+
+    Known fields: {{ ep.known_fields | join(', ') }}
 {% endif %}
 {% if ep.followup %}
 
@@ -446,6 +520,24 @@ async def {{ ep.tool_name }}(
     if err := _handle_error(resp, "{{ ep.tool_name }}"):
         return err
     result = _unwrap_loki_response(resp)
+{% if ep.filterable %}
+    if fields or filter_query:
+        result = _filter_results(
+            result,
+            fields=fields,
+            query=filter_query,
+{% if ep.filter_path %}
+            filter_path="{{ ep.filter_path }}",
+{% else %}
+            filter_path=None,
+{% endif %}
+{% if ep.filter_label_key %}
+            filter_label_key="{{ ep.filter_label_key }}",
+{% else %}
+            filter_label_key=None,
+{% endif %}
+        )
+{% endif %}
 {% if 'data.result' in ep.response_fields %}
     if isinstance(result, dict) and "result" in result:
         entries = result["result"]
