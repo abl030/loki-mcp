@@ -8,14 +8,18 @@ from generator.naming import MODULES, python_default, python_type
 
 def _build_param_context(param: Parameter) -> dict:
     """Build template context for a single parameter."""
+    desc = param.description
+    if param.enum:
+        desc += f". Valid values: {', '.join(repr(v) for v in param.enum)}"
     return {
         "name": param.name,
         "type": python_type(param.type),
         "spec_type": param.type,
         "required": param.required,
-        "description": param.description,
+        "description": desc,
         "default": python_default(param.type, param.default),
         "has_default": param.default is not None,
+        "enum": param.enum,
     }
 
 
@@ -50,6 +54,7 @@ def _build_endpoint_context(ep: Endpoint) -> dict:
         "mutation": ep.mutation,
         "danger": ep.danger,
         "notes": ep.notes,
+        "followup": ep.followup,
         "parameters": [_build_param_context(p) for p in ep.parameters],
         "required_params": [_build_param_context(p) for p in required_params],
         "optional_params": [_build_param_context(p) for p in optional_params],

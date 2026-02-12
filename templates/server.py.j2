@@ -294,6 +294,10 @@ async def {{ ep.tool_name }}(
         confirm: Must be True to execute. Returns preview if False.
 {% endif %}
 {% endif %}
+{% if ep.followup %}
+
+    Follow-up: {{ ep.followup }}
+{% endif %}
 {% if ep.notes %}
 
     Note: {{ ep.notes }}

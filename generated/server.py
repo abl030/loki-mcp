@@ -277,7 +277,7 @@ async def loki_query_instant(
         query: LogQL query string
         time: Evaluation timestamp (RFC3339 or Unix epoch). Defaults to now.
         limit: Maximum number of entries to return
-        direction: Log ordering: 'forward' or 'backward'
+        direction: Log ordering. Valid values: 'forward', 'backward'
 
     Note: resultType is 'streams' for log queries, 'vector' for metric queries
     """
@@ -324,7 +324,7 @@ async def loki_query_range(
         start: Start timestamp (RFC3339, Unix epoch, or duration like '1h'). Defaults to 1h ago.
         end: End timestamp (RFC3339, Unix epoch, or duration like '5m'). Defaults to now.
         limit: Maximum number of entries to return
-        direction: Log ordering: 'forward' or 'backward'
+        direction: Log ordering. Valid values: 'forward', 'backward'
         step: Query resolution step width (e.g. '5m'). Only for metric queries.
 
     Note: resultType is 'streams' for log queries, 'matrix' for metric queries
@@ -658,6 +658,8 @@ async def loki_push(
         streams: List of stream objects. Each has 'stream' (label dict) and 'values' (list of [timestamp_ns, line] pairs).
         confirm: Must be True to execute. Returns preview if False.
 
+    Follow-up: Wait a moment for ingestion, then verify with loki_query_range.
+
     Note: Returns 204 No Content on success. Timestamps must be nanosecond Unix epoch strings.
     """
     if not confirm:
@@ -779,6 +781,8 @@ async def loki_create_rule_group(
         rules_yaml: YAML-encoded rule group definition (name, interval, rules list)
         confirm: Must be True to execute. Returns preview if False.
 
+    Follow-up: Verify with loki_get_rule_group or loki_list_rules.
+
     Note: Content-Type must be application/yaml. Returns 202 Accepted.
     """
     if not confirm:
@@ -824,6 +828,8 @@ async def loki_delete_rule_group(
         group: Rule group name to delete
         confirm: Must be True to execute. Returns preview if False.
 
+    Follow-up: Verify deletion with loki_list_rules.
+
     Note: Returns 202 Accepted
     """
     if not confirm:
@@ -867,6 +873,8 @@ async def loki_delete_rules_namespace(
         namespace: Rule namespace name to delete entirely
         confirm: Must be True to execute. Returns preview if False.
 
+    Follow-up: Verify deletion with loki_list_rules.
+
     Note: Returns 202 Accepted. Deletes ALL rule groups in the namespace.
     """
     if not confirm:
@@ -904,7 +912,7 @@ async def loki_list_prometheus_rules(
     """List rules in Prometheus-compatible format. Includes firing status and health.
 
     Args:
-        type: Filter by rule type: 'alert' or 'record'
+        type: Filter by rule type. Valid values: 'alert', 'record'
 
     Note: Same data as list_rules but in Prometheus /api/v1/rules format with evaluation status
     """
@@ -941,6 +949,8 @@ async def loki_create_delete_request(
         start: Start of deletion time range (RFC3339)
         end: End of deletion time range (RFC3339)
         confirm: Must be True to execute. Returns preview if False.
+
+    Follow-up: Deletion is async. Check status with loki_list_delete_requests.
 
     Note: Returns 204 No Content. Requires compactor with deletion enabled. Deletion is async.
     """
@@ -1009,6 +1019,8 @@ async def loki_cancel_delete_request(
     Args:
         request_id: ID of the delete request to cancel
         confirm: Must be True to execute. Returns preview if False.
+
+    Follow-up: Verify cancellation with loki_list_delete_requests.
 
     Note: Returns 204 No Content. Only pending requests can be cancelled.
     """
@@ -1165,8 +1177,10 @@ async def loki_set_log_level(
     """Change the runtime log level of the Loki instance.
 
     Args:
-        log_level: New log level: 'debug', 'info', 'warn', or 'error'
+        log_level: New log level. Valid values: 'debug', 'info', 'warn', 'error'
         confirm: Must be True to execute. Returns preview if False.
+
+    Follow-up: Verify with loki_get_log_level.
 
     Note: Sent as form-encoded body: log_level=<value>
     """
@@ -1203,6 +1217,8 @@ async def loki_flush(
     confirm: bool = False,
 ) -> str:
     """Flush all in-memory chunks to backing store. Forces immediate persistence.
+
+    Follow-up: Monitor with loki_metrics after flushing.
 
     Note: Returns 204 No Content. Can impact performance during flush.
     """
@@ -1260,6 +1276,8 @@ async def loki_prepare_shutdown(
     confirm: bool = False,
 ) -> str:
     """Signal the ingester to prepare for shutdown. Flushes data and stops accepting writes.
+
+    Follow-up: Check status with loki_prepare_shutdown_status. Cancel with loki_cancel_prepare_shutdown if needed.
 
     Note: Returns 204 No Content. Initiates graceful shutdown preparation.
     """
@@ -1350,6 +1368,8 @@ async def loki_shutdown(
     confirm: bool = False,
 ) -> str:
     """Trigger immediate shutdown of the ingester. DANGEROUS: causes data loss if chunks not flushed.
+
+    Follow-up: Call loki_prepare_shutdown FIRST to flush data and avoid data loss.
 
     Note: Returns 204 No Content. WARNING: May cause data loss. Use prepare_shutdown first.
     """

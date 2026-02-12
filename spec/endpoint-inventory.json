@@ -15,7 +15,7 @@
         {"name": "query", "type": "str", "required": true, "description": "LogQL query string"},
         {"name": "time", "type": "str", "required": false, "description": "Evaluation timestamp (RFC3339 or Unix epoch). Defaults to now."},
         {"name": "limit", "type": "int", "required": false, "default": 100, "description": "Maximum number of entries to return"},
-        {"name": "direction", "type": "str", "required": false, "default": "backward", "description": "Log ordering: 'forward' or 'backward'"}
+        {"name": "direction", "type": "str", "required": false, "default": "backward", "description": "Log ordering", "enum": ["forward", "backward"]}
       ],
       "response_fields": ["status", "data.resultType", "data.result"],
       "notes": "resultType is 'streams' for log queries, 'vector' for metric queries"
@@ -34,7 +34,7 @@
         {"name": "start", "type": "str", "required": false, "description": "Start timestamp (RFC3339, Unix epoch, or duration like '1h'). Defaults to 1h ago."},
         {"name": "end", "type": "str", "required": false, "description": "End timestamp (RFC3339, Unix epoch, or duration like '5m'). Defaults to now."},
         {"name": "limit", "type": "int", "required": false, "default": 100, "description": "Maximum number of entries to return"},
-        {"name": "direction", "type": "str", "required": false, "default": "backward", "description": "Log ordering: 'forward' or 'backward'"},
+        {"name": "direction", "type": "str", "required": false, "default": "backward", "description": "Log ordering", "enum": ["forward", "backward"]},
         {"name": "step", "type": "str", "required": false, "description": "Query resolution step width (e.g. '5m'). Only for metric queries."}
       ],
       "response_fields": ["status", "data.resultType", "data.result"],
@@ -177,6 +177,7 @@
         {"name": "streams", "type": "list", "required": true, "description": "List of stream objects. Each has 'stream' (label dict) and 'values' (list of [timestamp_ns, line] pairs)."}
       ],
       "response_fields": [],
+      "followup": "Wait a moment for ingestion, then verify with loki_query_range.",
       "notes": "Returns 204 No Content on success. Timestamps must be nanosecond Unix epoch strings."
     },
     {
@@ -237,6 +238,7 @@
         {"name": "rules_yaml", "type": "str", "required": true, "description": "YAML-encoded rule group definition (name, interval, rules list)"}
       ],
       "response_fields": [],
+      "followup": "Verify with loki_get_rule_group or loki_list_rules.",
       "notes": "Content-Type must be application/yaml. Returns 202 Accepted."
     },
     {
@@ -253,6 +255,7 @@
         {"name": "group", "type": "str", "required": true, "description": "Rule group name to delete"}
       ],
       "response_fields": [],
+      "followup": "Verify deletion with loki_list_rules.",
       "notes": "Returns 202 Accepted"
     },
     {
@@ -268,6 +271,7 @@
         {"name": "namespace", "type": "str", "required": true, "description": "Rule namespace name to delete entirely"}
       ],
       "response_fields": [],
+      "followup": "Verify deletion with loki_list_rules.",
       "notes": "Returns 202 Accepted. Deletes ALL rule groups in the namespace."
     },
     {
@@ -280,7 +284,7 @@
       "mutation": false,
       "danger": false,
       "parameters": [
-        {"name": "type", "type": "str", "required": false, "description": "Filter by rule type: 'alert' or 'record'"}
+        {"name": "type", "type": "str", "required": false, "description": "Filter by rule type", "enum": ["alert", "record"]}
       ],
       "response_fields": ["status", "data.groups"],
       "notes": "Same data as list_rules but in Prometheus /api/v1/rules format with evaluation status"
@@ -300,6 +304,7 @@
         {"name": "end", "type": "str", "required": true, "description": "End of deletion time range (RFC3339)"}
       ],
       "response_fields": [],
+      "followup": "Deletion is async. Check status with loki_list_delete_requests.",
       "notes": "Returns 204 No Content. Requires compactor with deletion enabled. Deletion is async."
     },
     {
@@ -328,6 +333,7 @@
         {"name": "request_id", "type": "str", "required": true, "description": "ID of the delete request to cancel"}
       ],
       "response_fields": [],
+      "followup": "Verify cancellation with loki_list_delete_requests.",
       "notes": "Returns 204 No Content. Only pending requests can be cancelled."
     },
     {
@@ -418,9 +424,10 @@
       "mutation": true,
       "danger": false,
       "parameters": [
-        {"name": "log_level", "type": "str", "required": true, "description": "New log level: 'debug', 'info', 'warn', or 'error'"}
+        {"name": "log_level", "type": "str", "required": true, "description": "New log level", "enum": ["debug", "info", "warn", "error"]}
       ],
       "response_fields": ["message"],
+      "followup": "Verify with loki_get_log_level.",
       "notes": "Sent as form-encoded body: log_level=<value>"
     },
     {
@@ -434,6 +441,7 @@
       "danger": true,
       "parameters": [],
       "response_fields": [],
+      "followup": "Monitor with loki_metrics after flushing.",
       "notes": "Returns 204 No Content. Can impact performance during flush."
     },
     {
@@ -460,6 +468,7 @@
       "danger": true,
       "parameters": [],
       "response_fields": [],
+      "followup": "Check status with loki_prepare_shutdown_status. Cancel with loki_cancel_prepare_shutdown if needed.",
       "notes": "Returns 204 No Content. Initiates graceful shutdown preparation."
     },
     {
@@ -499,6 +508,7 @@
       "danger": true,
       "parameters": [],
       "response_fields": [],
+      "followup": "Call loki_prepare_shutdown FIRST to flush data and avoid data loss.",
       "notes": "Returns 204 No Content. WARNING: May cause data loss. Use prepare_shutdown first."
     },
     {

@@ -14,6 +14,7 @@ class Parameter:
     required: bool
     description: str
     default: str | int | None = None
+    enum: list[str] | None = None
 
 
 @dataclass
@@ -29,6 +30,7 @@ class Endpoint:
     parameters: list[Parameter] = field(default_factory=list)
     response_fields: list[str] = field(default_factory=list)
     notes: str = ""
+    followup: str = ""
 
 
 @dataclass
@@ -66,6 +68,7 @@ def load_inventory(inventory_path: Path) -> LokiInventory:
                 required=p["required"],
                 description=p.get("description", ""),
                 default=p.get("default"),
+                enum=p.get("enum"),
             )
             for p in ep.get("parameters", [])
         ]
@@ -82,6 +85,7 @@ def load_inventory(inventory_path: Path) -> LokiInventory:
                 parameters=params,
                 response_fields=ep.get("response_fields", []),
                 notes=ep.get("notes", ""),
+                followup=ep.get("followup", ""),
             )
         )
 
