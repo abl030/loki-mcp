@@ -1,0 +1,77 @@
+services:
+  loki:
+    image: grafana/loki:3.4.2
+    command: >-
+      sh -c "mkdir -p /loki/rules/fake /loki/rules-temp /loki/ruler-wal &&
+      /usr/bin/loki -config.file=/etc/loki/config.yaml"
+    entrypoint: []
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki-config.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3100/ready || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Log generators — two simulated hosts with multiple containers
+  flog-host1-nginx:
+    image: mingrammer/flog:0.4.3
+    command: -f apache_combined -d 2s -l
+    depends_on:
+      loki:
+        condition: service_healthy
+
+  flog-host1-app:
+    image: mingrammer/flog:0.4.3
+    command: -f json -d 3s -l
+    depends_on:
+      loki:
+        condition: service_healthy
+
+  flog-host2-nginx:
+    image: mingrammer/flog:0.4.3
+    command: -f apache_combined -d 2s -l
+    depends_on:
+      loki:
+        condition: service_healthy
+
+  flog-host2-db:
+    image: mingrammer/flog:0.4.3
+    command: -f rfc5424 -d 4s -l
+    depends_on:
+      loki:
+        condition: service_healthy
+
+  alloy:
+    image: grafana/alloy:v1.5.1
+    command: run --server.http.listen-addr=0.0.0.0:12345 /etc/alloy/config.alloy
+    volumes:
+      - ./alloy-config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      loki:
+        condition: service_healthy
+
+  # Optional: Grafana for visual debugging
+  grafana:
+    image: grafana/grafana:11.5.2
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      loki:
+        condition: service_healthy
+    profiles:
+      - debug
+
+volumes:
+  loki-data:
+  grafana-data:

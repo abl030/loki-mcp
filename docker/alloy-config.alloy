@@ -1,0 +1,45 @@
+// Alloy config: scrape flog containers and push to Loki
+
+discovery.docker "flog" {
+  host = "unix:///var/run/docker.sock"
+  filter {
+    name = "name"
+    values = ["flog-*"]
+  }
+}
+
+discovery.relabel "flog" {
+  targets = discovery.docker.flog.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/flog-(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/flog-host1-.*"
+    replacement   = "test-host-1"
+    target_label  = "host"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/flog-host2-.*"
+    replacement   = "test-host-2"
+    target_label  = "host"
+  }
+}
+
+loki.source.docker "flog" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.flog.output
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
