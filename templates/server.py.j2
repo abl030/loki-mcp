@@ -205,6 +205,45 @@ def _unwrap_loki_response(resp: httpx.Response) -> Any:
     return body
 
 
+def _handle_error(resp: httpx.Response, tool_name: str) -> str | None:
+    """Check for HTTP errors and return a friendly message, or None if OK.
+
+    Distinguishes between Loki API errors (4xx/5xx with JSON body) and
+    connection/transport errors. Returns a formatted error string instead
+    of raising, so the LLM gets actionable feedback instead of a traceback.
+    """
+    if resp.is_success:
+        return None
+
+    # Try to extract Loki's error message from JSON body
+    detail = ""
+    try:
+        body = resp.json()
+        detail = body.get("message", body.get("error", ""))
+    except Exception:
+        detail = resp.text[:500] if resp.text else ""
+
+    error_data = {
+        "error": True,
+        "tool": tool_name,
+        "status_code": resp.status_code,
+        "message": detail or f"HTTP {resp.status_code} {resp.reason_phrase}",
+    }
+
+    if resp.status_code == 400:
+        error_data["hint"] = "Bad request — check query syntax and parameter values."
+    elif resp.status_code == 404:
+        error_data["hint"] = "Not found — the resource or endpoint does not exist."
+    elif resp.status_code == 422:
+        error_data["hint"] = "Unprocessable — the request was well-formed but semantically invalid."
+    elif resp.status_code == 429:
+        error_data["hint"] = "Rate limited — wait and retry."
+    elif resp.status_code >= 500:
+        error_data["hint"] = "Loki server error — the instance may be overloaded or misconfigured."
+
+    return _format_response(error_data, f"Error from {tool_name}: HTTP {resp.status_code}")
+
+
 # ---------------------------------------------------------------------------
 # MCP Server
 # ---------------------------------------------------------------------------
@@ -299,7 +338,8 @@ async def {{ ep.tool_name }}(
     client = await _get_client()
 {% if ep.is_text_response %}
     resp = await client.request("{{ ep.method }}", "{{ ep.path }}")
-    resp.raise_for_status()
+    if err := _handle_error(resp, "{{ ep.tool_name }}"):
+        return err
     return _format_response(resp.text, "{{ ep.tool_name }} response")
 {% elif ep.is_form_encoded %}
     resp = await client.request(
@@ -308,7 +348,8 @@ async def {{ ep.tool_name }}(
         data={"log_level": log_level},
         content_type="application/x-www-form-urlencoded",
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "{{ ep.tool_name }}"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result, "Log level updated")
 {% elif ep.is_yaml_body %}
@@ -322,12 +363,14 @@ async def {{ ep.tool_name }}(
         content=rules_yaml.encode(),
         content_type="application/yaml",
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "{{ ep.tool_name }}"):
+        return err
     return _format_response({"status": "success", "message": "Rule group created/updated"})
 {% elif ep.id == 'push' %}
     payload = {"streams": streams}
     resp = await client.request("{{ ep.method }}", "{{ ep.path }}", json_data=payload)
-    resp.raise_for_status()
+    if err := _handle_error(resp, "{{ ep.tool_name }}"):
+        return err
     return _format_response({"status": "success", "message": f"Pushed {len(streams)} stream(s)"})
 {% elif ep.is_no_content %}
 {% if ep.path_params %}
@@ -358,7 +401,8 @@ async def {{ ep.tool_name }}(
         params=params,
 {% endif %}
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "{{ ep.tool_name }}"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result, "{{ ep.tool_name }} completed")
 {% else %}
@@ -395,7 +439,8 @@ async def {{ ep.tool_name }}(
 {% endif %}
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "{{ ep.tool_name }}"):
+        return err
     result = _unwrap_loki_response(resp)
 {% if 'data.result' in ep.response_fields %}
     if isinstance(result, dict) and "result" in result:
@@ -481,7 +526,8 @@ async def loki_search_logs(
         params["end"] = _parse_timestamp(end)
 
     resp = await client.request("GET", "/loki/api/v1/query_range", params=params)
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_search_logs"):
+        return err
     result = _unwrap_loki_response(resp)
 
     # Format output
@@ -524,7 +570,8 @@ async def loki_error_summary(
         params["end"] = _parse_timestamp(end)
 
     resp = await client.request("GET", "/loki/api/v1/query_range", params=params)
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_error_summary"):
+        return err
     result = _unwrap_loki_response(resp)
 
     # Build summary
@@ -573,7 +620,8 @@ async def loki_volume_by_label(
         params["end"] = _parse_timestamp(end)
 
     resp = await client.request("GET", "/loki/api/v1/index/volume", params=params)
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_volume_by_label"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result, f"Volume by {label}")
 
@@ -616,7 +664,8 @@ async def loki_compare_hosts(
         params["end"] = _parse_timestamp(end)
 
     resp = await client.request("GET", "/loki/api/v1/query_range", params=params)
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_compare_hosts"):
+        return err
     result = _unwrap_loki_response(resp)
 
     # Group by host

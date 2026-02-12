@@ -205,6 +205,45 @@ def _unwrap_loki_response(resp: httpx.Response) -> Any:
     return body
 
 
+def _handle_error(resp: httpx.Response, tool_name: str) -> str | None:
+    """Check for HTTP errors and return a friendly message, or None if OK.
+
+    Distinguishes between Loki API errors (4xx/5xx with JSON body) and
+    connection/transport errors. Returns a formatted error string instead
+    of raising, so the LLM gets actionable feedback instead of a traceback.
+    """
+    if resp.is_success:
+        return None
+
+    # Try to extract Loki's error message from JSON body
+    detail = ""
+    try:
+        body = resp.json()
+        detail = body.get("message", body.get("error", ""))
+    except Exception:
+        detail = resp.text[:500] if resp.text else ""
+
+    error_data = {
+        "error": True,
+        "tool": tool_name,
+        "status_code": resp.status_code,
+        "message": detail or f"HTTP {resp.status_code} {resp.reason_phrase}",
+    }
+
+    if resp.status_code == 400:
+        error_data["hint"] = "Bad request — check query syntax and parameter values."
+    elif resp.status_code == 404:
+        error_data["hint"] = "Not found — the resource or endpoint does not exist."
+    elif resp.status_code == 422:
+        error_data["hint"] = "Unprocessable — the request was well-formed but semantically invalid."
+    elif resp.status_code == 429:
+        error_data["hint"] = "Rate limited — wait and retry."
+    elif resp.status_code >= 500:
+        error_data["hint"] = "Loki server error — the instance may be overloaded or misconfigured."
+
+    return _format_response(error_data, f"Error from {tool_name}: HTTP {resp.status_code}")
+
+
 # ---------------------------------------------------------------------------
 # MCP Server
 # ---------------------------------------------------------------------------
@@ -259,7 +298,8 @@ async def loki_query_instant(
         "/loki/api/v1/query",
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_query_instant"):
+        return err
     result = _unwrap_loki_response(resp)
     if isinstance(result, dict) and "result" in result:
         entries = result["result"]
@@ -310,7 +350,8 @@ async def loki_query_range(
         "/loki/api/v1/query_range",
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_query_range"):
+        return err
     result = _unwrap_loki_response(resp)
     if isinstance(result, dict) and "result" in result:
         entries = result["result"]
@@ -346,7 +387,8 @@ async def loki_list_labels(
         "/loki/api/v1/labels",
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_list_labels"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result)
 
@@ -387,7 +429,8 @@ async def loki_list_label_values(
         path,
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_list_label_values"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result)
 
@@ -423,7 +466,8 @@ async def loki_list_series(
         "/loki/api/v1/series",
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_list_series"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result)
 
@@ -459,7 +503,8 @@ async def loki_index_stats(
         "/loki/api/v1/index/stats",
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_index_stats"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result)
 
@@ -503,7 +548,8 @@ async def loki_index_volume(
         "/loki/api/v1/index/volume",
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_index_volume"):
+        return err
     result = _unwrap_loki_response(resp)
     if isinstance(result, dict) and "result" in result:
         entries = result["result"]
@@ -554,7 +600,8 @@ async def loki_index_volume_range(
         "/loki/api/v1/index/volume_range",
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_index_volume_range"):
+        return err
     result = _unwrap_loki_response(resp)
     if isinstance(result, dict) and "result" in result:
         entries = result["result"]
@@ -593,7 +640,8 @@ async def loki_detect_patterns(
         "/loki/api/v1/patterns",
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_detect_patterns"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result)
 
@@ -629,7 +677,8 @@ async def loki_push(
     client = await _get_client()
     payload = {"streams": streams}
     resp = await client.request("POST", "/loki/api/v1/push", json_data=payload)
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_push"):
+        return err
     return _format_response({"status": "success", "message": f"Pushed {len(streams)} stream(s)"})
 
 # --- loki_list_rules (rules) ---
@@ -651,7 +700,8 @@ async def loki_list_rules(
         "/loki/api/v1/rules",
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_list_rules"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result)
 
@@ -678,7 +728,8 @@ async def loki_get_rules_namespace(
         path,
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_get_rules_namespace"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result)
 
@@ -708,7 +759,8 @@ async def loki_get_rule_group(
         path,
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_get_rule_group"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result)
 
@@ -753,7 +805,8 @@ async def loki_create_rule_group(
         content=rules_yaml.encode(),
         content_type="application/yaml",
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_create_rule_group"):
+        return err
     return _format_response({"status": "success", "message": "Rule group created/updated"})
 
 # --- loki_delete_rule_group (rules) ---
@@ -796,7 +849,8 @@ async def loki_delete_rule_group(
         "DELETE",
         path,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_delete_rule_group"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result, "loki_delete_rule_group completed")
 
@@ -836,7 +890,8 @@ async def loki_delete_rules_namespace(
         "DELETE",
         path,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_delete_rules_namespace"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result, "loki_delete_rules_namespace completed")
 
@@ -865,7 +920,8 @@ async def loki_list_prometheus_rules(
         "/prometheus/api/v1/rules",
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_list_prometheus_rules"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result)
 
@@ -914,7 +970,8 @@ async def loki_create_delete_request(
         "/loki/api/v1/delete",
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_create_delete_request"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result, "loki_create_delete_request completed")
 
@@ -935,7 +992,8 @@ async def loki_list_delete_requests(
         "/loki/api/v1/delete",
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_list_delete_requests"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result)
 
@@ -976,7 +1034,8 @@ async def loki_cancel_delete_request(
         "/loki/api/v1/delete",
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_cancel_delete_request"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result, "loki_cancel_delete_request completed")
 
@@ -994,7 +1053,8 @@ async def loki_ready(
 
     client = await _get_client()
     resp = await client.request("GET", "/ready")
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_ready"):
+        return err
     return _format_response(resp.text, "loki_ready response")
 
 # --- loki_metrics (status) ---
@@ -1011,7 +1071,8 @@ async def loki_metrics(
 
     client = await _get_client()
     resp = await client.request("GET", "/metrics")
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_metrics"):
+        return err
     return _format_response(resp.text, "loki_metrics response")
 
 # --- loki_config (status) ---
@@ -1028,7 +1089,8 @@ async def loki_config(
 
     client = await _get_client()
     resp = await client.request("GET", "/config")
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_config"):
+        return err
     return _format_response(resp.text, "loki_config response")
 
 # --- loki_services (status) ---
@@ -1045,7 +1107,8 @@ async def loki_services(
 
     client = await _get_client()
     resp = await client.request("GET", "/services")
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_services"):
+        return err
     return _format_response(resp.text, "loki_services response")
 
 # --- loki_buildinfo (status) ---
@@ -1065,7 +1128,8 @@ async def loki_buildinfo(
         "/loki/api/v1/status/buildinfo",
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_buildinfo"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result)
 
@@ -1086,7 +1150,8 @@ async def loki_get_log_level(
         "/log_level",
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_get_log_level"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result)
 
@@ -1126,7 +1191,8 @@ async def loki_set_log_level(
         data={"log_level": log_level},
         content_type="application/x-www-form-urlencoded",
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_set_log_level"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result, "Log level updated")
 
@@ -1158,7 +1224,8 @@ async def loki_flush(
         "POST",
         "/flush",
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_flush"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result, "loki_flush completed")
 
@@ -1181,7 +1248,8 @@ async def loki_prepare_shutdown_status(
         "/ingester/prepare_shutdown",
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_prepare_shutdown_status"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result)
 
@@ -1213,7 +1281,8 @@ async def loki_prepare_shutdown(
         "POST",
         "/ingester/prepare_shutdown",
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_prepare_shutdown"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result, "loki_prepare_shutdown completed")
 
@@ -1245,7 +1314,8 @@ async def loki_cancel_prepare_shutdown(
         "DELETE",
         "/ingester/prepare_shutdown",
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_cancel_prepare_shutdown"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result, "loki_cancel_prepare_shutdown completed")
 
@@ -1268,7 +1338,8 @@ async def loki_shutdown_status(
         "/ingester/shutdown",
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_shutdown_status"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result)
 
@@ -1300,7 +1371,8 @@ async def loki_shutdown(
         "POST",
         "/ingester/shutdown",
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_shutdown"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result, "loki_shutdown completed")
 
@@ -1328,7 +1400,8 @@ async def loki_format_query(
         "/loki/api/v1/format_query",
         params=params,
     )
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_format_query"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result)
 
@@ -1407,7 +1480,8 @@ async def loki_search_logs(
         params["end"] = _parse_timestamp(end)
 
     resp = await client.request("GET", "/loki/api/v1/query_range", params=params)
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_search_logs"):
+        return err
     result = _unwrap_loki_response(resp)
 
     # Format output
@@ -1450,7 +1524,8 @@ async def loki_error_summary(
         params["end"] = _parse_timestamp(end)
 
     resp = await client.request("GET", "/loki/api/v1/query_range", params=params)
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_error_summary"):
+        return err
     result = _unwrap_loki_response(resp)
 
     # Build summary
@@ -1499,7 +1574,8 @@ async def loki_volume_by_label(
         params["end"] = _parse_timestamp(end)
 
     resp = await client.request("GET", "/loki/api/v1/index/volume", params=params)
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_volume_by_label"):
+        return err
     result = _unwrap_loki_response(resp)
     return _format_response(result, f"Volume by {label}")
 
@@ -1542,7 +1618,8 @@ async def loki_compare_hosts(
         params["end"] = _parse_timestamp(end)
 
     resp = await client.request("GET", "/loki/api/v1/query_range", params=params)
-    resp.raise_for_status()
+    if err := _handle_error(resp, "loki_compare_hosts"):
+        return err
     result = _unwrap_loki_response(resp)
 
     # Group by host
