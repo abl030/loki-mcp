@@ -1,0 +1,573 @@
+{
+  "loki_version": "3.x",
+  "description": "Complete Loki HTTP API endpoint inventory, hand-crafted from official docs",
+  "endpoints": [
+    {
+      "id": "query_instant",
+      "module": "query",
+      "method": "GET",
+      "path": "/loki/api/v1/query",
+      "tool_name": "loki_query_instant",
+      "description": "Run an instant LogQL query at a single point in time. Returns log lines or metric vectors.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [
+        {"name": "query", "type": "str", "required": true, "description": "LogQL query string"},
+        {"name": "time", "type": "str", "required": false, "description": "Evaluation timestamp (RFC3339 or Unix epoch). Defaults to now."},
+        {"name": "limit", "type": "int", "required": false, "default": 100, "description": "Maximum number of entries to return"},
+        {"name": "direction", "type": "str", "required": false, "default": "backward", "description": "Log ordering: 'forward' or 'backward'"}
+      ],
+      "response_fields": ["status", "data.resultType", "data.result"],
+      "notes": "resultType is 'streams' for log queries, 'vector' for metric queries"
+    },
+    {
+      "id": "query_range",
+      "module": "query",
+      "method": "GET",
+      "path": "/loki/api/v1/query_range",
+      "tool_name": "loki_query_range",
+      "description": "Run a LogQL query over a time range. Returns log streams or metric matrices.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [
+        {"name": "query", "type": "str", "required": true, "description": "LogQL query string"},
+        {"name": "start", "type": "str", "required": false, "description": "Start timestamp (RFC3339, Unix epoch, or duration like '1h'). Defaults to 1h ago."},
+        {"name": "end", "type": "str", "required": false, "description": "End timestamp (RFC3339, Unix epoch, or duration like '5m'). Defaults to now."},
+        {"name": "limit", "type": "int", "required": false, "default": 100, "description": "Maximum number of entries to return"},
+        {"name": "direction", "type": "str", "required": false, "default": "backward", "description": "Log ordering: 'forward' or 'backward'"},
+        {"name": "step", "type": "str", "required": false, "description": "Query resolution step width (e.g. '5m'). Only for metric queries."}
+      ],
+      "response_fields": ["status", "data.resultType", "data.result"],
+      "notes": "resultType is 'streams' for log queries, 'matrix' for metric queries"
+    },
+    {
+      "id": "list_labels",
+      "module": "query",
+      "method": "GET",
+      "path": "/loki/api/v1/labels",
+      "tool_name": "loki_list_labels",
+      "description": "List all known label names within a given time range.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [
+        {"name": "start", "type": "str", "required": false, "description": "Start timestamp (RFC3339, Unix epoch, or duration like '1h')"},
+        {"name": "end", "type": "str", "required": false, "description": "End timestamp (RFC3339, Unix epoch, or duration like '5m')"}
+      ],
+      "response_fields": ["status", "data"],
+      "notes": "data is a flat list of label name strings"
+    },
+    {
+      "id": "list_label_values",
+      "module": "query",
+      "method": "GET",
+      "path": "/loki/api/v1/label/{name}/values",
+      "tool_name": "loki_list_label_values",
+      "description": "List all known values for a given label name.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [
+        {"name": "name", "type": "str", "required": true, "description": "Label name to get values for (e.g. 'host', 'container')"},
+        {"name": "start", "type": "str", "required": false, "description": "Start timestamp"},
+        {"name": "end", "type": "str", "required": false, "description": "End timestamp"},
+        {"name": "query", "type": "str", "required": false, "description": "LogQL stream selector to filter label values"}
+      ],
+      "response_fields": ["status", "data"],
+      "notes": "data is a flat list of label value strings"
+    },
+    {
+      "id": "list_series",
+      "module": "query",
+      "method": "GET",
+      "path": "/loki/api/v1/series",
+      "tool_name": "loki_list_series",
+      "description": "List all log streams (label sets) matching a set of stream selectors.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [
+        {"name": "match", "type": "str", "required": true, "description": "Stream selector(s) to match. At least one match[] parameter required."},
+        {"name": "start", "type": "str", "required": false, "description": "Start timestamp"},
+        {"name": "end", "type": "str", "required": false, "description": "End timestamp"}
+      ],
+      "response_fields": ["status", "data"],
+      "notes": "data is a list of label set objects. match parameter sent as match[]."
+    },
+    {
+      "id": "index_stats",
+      "module": "index",
+      "method": "GET",
+      "path": "/loki/api/v1/index/stats",
+      "tool_name": "loki_index_stats",
+      "description": "Get index statistics (streams, chunks, entries, bytes) for a LogQL query.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [
+        {"name": "query", "type": "str", "required": true, "description": "LogQL stream selector query"},
+        {"name": "start", "type": "str", "required": false, "description": "Start timestamp"},
+        {"name": "end", "type": "str", "required": false, "description": "End timestamp"}
+      ],
+      "response_fields": ["streams", "chunks", "entries", "bytes"],
+      "notes": "Response is a flat object, not wrapped in data envelope"
+    },
+    {
+      "id": "index_volume",
+      "module": "index",
+      "method": "GET",
+      "path": "/loki/api/v1/index/volume",
+      "tool_name": "loki_index_volume",
+      "description": "Get log volume aggregated by labels. Shows which streams generate the most logs.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [
+        {"name": "query", "type": "str", "required": true, "description": "LogQL stream selector query"},
+        {"name": "start", "type": "str", "required": false, "description": "Start timestamp"},
+        {"name": "end", "type": "str", "required": false, "description": "End timestamp"},
+        {"name": "limit", "type": "int", "required": false, "default": 100, "description": "Maximum number of volumes to return"},
+        {"name": "targetLabels", "type": "str", "required": false, "description": "Comma-separated labels to aggregate by (e.g. 'host,container')"}
+      ],
+      "response_fields": ["status", "data.resultType", "data.result"],
+      "notes": "Requires volume_enabled in Loki config"
+    },
+    {
+      "id": "index_volume_range",
+      "module": "index",
+      "method": "GET",
+      "path": "/loki/api/v1/index/volume_range",
+      "tool_name": "loki_index_volume_range",
+      "description": "Get log volume over time, aggregated by labels. Shows volume trends.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [
+        {"name": "query", "type": "str", "required": true, "description": "LogQL stream selector query"},
+        {"name": "start", "type": "str", "required": false, "description": "Start timestamp"},
+        {"name": "end", "type": "str", "required": false, "description": "End timestamp"},
+        {"name": "limit", "type": "int", "required": false, "default": 100, "description": "Maximum number of volumes to return"},
+        {"name": "step", "type": "str", "required": false, "description": "Query resolution step width (e.g. '5m')"},
+        {"name": "targetLabels", "type": "str", "required": false, "description": "Comma-separated labels to aggregate by"}
+      ],
+      "response_fields": ["status", "data.resultType", "data.result"],
+      "notes": "Requires volume_enabled in Loki config"
+    },
+    {
+      "id": "detect_patterns",
+      "module": "patterns",
+      "method": "GET",
+      "path": "/loki/api/v1/patterns",
+      "tool_name": "loki_detect_patterns",
+      "description": "Detect common log line patterns within a stream. Clusters similar log lines together.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [
+        {"name": "query", "type": "str", "required": true, "description": "LogQL stream selector query"},
+        {"name": "start", "type": "str", "required": false, "description": "Start timestamp"},
+        {"name": "end", "type": "str", "required": false, "description": "End timestamp"}
+      ],
+      "response_fields": ["status", "data"],
+      "notes": "Requires pattern_ingester enabled in Loki config"
+    },
+    {
+      "id": "push",
+      "module": "ingest",
+      "method": "POST",
+      "path": "/loki/api/v1/push",
+      "tool_name": "loki_push",
+      "description": "Push log entries to Loki. Entries must include streams with labels and log line values.",
+      "mutation": true,
+      "danger": false,
+      "parameters": [
+        {"name": "streams", "type": "list", "required": true, "description": "List of stream objects. Each has 'stream' (label dict) and 'values' (list of [timestamp_ns, line] pairs)."}
+      ],
+      "response_fields": [],
+      "notes": "Returns 204 No Content on success. Timestamps must be nanosecond Unix epoch strings."
+    },
+    {
+      "id": "list_rules",
+      "module": "rules",
+      "method": "GET",
+      "path": "/loki/api/v1/rules",
+      "tool_name": "loki_list_rules",
+      "description": "List all alerting and recording rules across all namespaces.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [],
+      "response_fields": ["status", "data.groups"],
+      "notes": "Returns rule groups organized by namespace"
+    },
+    {
+      "id": "get_rules_namespace",
+      "module": "rules",
+      "method": "GET",
+      "path": "/loki/api/v1/rules/{namespace}",
+      "tool_name": "loki_get_rules_namespace",
+      "description": "List all rule groups within a specific namespace.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [
+        {"name": "namespace", "type": "str", "required": true, "description": "Rule namespace name"}
+      ],
+      "response_fields": ["status", "data.groups"],
+      "notes": ""
+    },
+    {
+      "id": "get_rule_group",
+      "module": "rules",
+      "method": "GET",
+      "path": "/loki/api/v1/rules/{namespace}/{group}",
+      "tool_name": "loki_get_rule_group",
+      "description": "Get a specific rule group by namespace and group name.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [
+        {"name": "namespace", "type": "str", "required": true, "description": "Rule namespace name"},
+        {"name": "group", "type": "str", "required": true, "description": "Rule group name"}
+      ],
+      "response_fields": ["name", "interval", "rules"],
+      "notes": ""
+    },
+    {
+      "id": "create_rule_group",
+      "module": "rules",
+      "method": "POST",
+      "path": "/loki/api/v1/rules/{namespace}",
+      "tool_name": "loki_create_rule_group",
+      "description": "Create or update a rule group within a namespace. Replaces the entire group if it exists.",
+      "mutation": true,
+      "danger": false,
+      "parameters": [
+        {"name": "namespace", "type": "str", "required": true, "description": "Rule namespace name"},
+        {"name": "rules_yaml", "type": "str", "required": true, "description": "YAML-encoded rule group definition (name, interval, rules list)"}
+      ],
+      "response_fields": [],
+      "notes": "Content-Type must be application/yaml. Returns 202 Accepted."
+    },
+    {
+      "id": "delete_rule_group",
+      "module": "rules",
+      "method": "DELETE",
+      "path": "/loki/api/v1/rules/{namespace}/{group}",
+      "tool_name": "loki_delete_rule_group",
+      "description": "Delete a specific rule group from a namespace.",
+      "mutation": true,
+      "danger": true,
+      "parameters": [
+        {"name": "namespace", "type": "str", "required": true, "description": "Rule namespace name"},
+        {"name": "group", "type": "str", "required": true, "description": "Rule group name to delete"}
+      ],
+      "response_fields": [],
+      "notes": "Returns 202 Accepted"
+    },
+    {
+      "id": "delete_rules_namespace",
+      "module": "rules",
+      "method": "DELETE",
+      "path": "/loki/api/v1/rules/{namespace}",
+      "tool_name": "loki_delete_rules_namespace",
+      "description": "Delete all rule groups in a namespace.",
+      "mutation": true,
+      "danger": true,
+      "parameters": [
+        {"name": "namespace", "type": "str", "required": true, "description": "Rule namespace name to delete entirely"}
+      ],
+      "response_fields": [],
+      "notes": "Returns 202 Accepted. Deletes ALL rule groups in the namespace."
+    },
+    {
+      "id": "list_prometheus_rules",
+      "module": "rules",
+      "method": "GET",
+      "path": "/prometheus/api/v1/rules",
+      "tool_name": "loki_list_prometheus_rules",
+      "description": "List rules in Prometheus-compatible format. Includes firing status and health.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [
+        {"name": "type", "type": "str", "required": false, "description": "Filter by rule type: 'alert' or 'record'"}
+      ],
+      "response_fields": ["status", "data.groups"],
+      "notes": "Same data as list_rules but in Prometheus /api/v1/rules format with evaluation status"
+    },
+    {
+      "id": "create_delete_request",
+      "module": "delete",
+      "method": "POST",
+      "path": "/loki/api/v1/delete",
+      "tool_name": "loki_create_delete_request",
+      "description": "Create a request to delete log entries matching a query within a time range.",
+      "mutation": true,
+      "danger": true,
+      "parameters": [
+        {"name": "query", "type": "str", "required": true, "description": "LogQL stream selector for logs to delete"},
+        {"name": "start", "type": "str", "required": true, "description": "Start of deletion time range (RFC3339)"},
+        {"name": "end", "type": "str", "required": true, "description": "End of deletion time range (RFC3339)"}
+      ],
+      "response_fields": [],
+      "notes": "Returns 204 No Content. Requires compactor with deletion enabled. Deletion is async."
+    },
+    {
+      "id": "list_delete_requests",
+      "module": "delete",
+      "method": "GET",
+      "path": "/loki/api/v1/delete",
+      "tool_name": "loki_list_delete_requests",
+      "description": "List all pending and processed delete requests.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [],
+      "response_fields": ["request_id", "start_time", "end_time", "query", "status", "created_at"],
+      "notes": ""
+    },
+    {
+      "id": "cancel_delete_request",
+      "module": "delete",
+      "method": "DELETE",
+      "path": "/loki/api/v1/delete",
+      "tool_name": "loki_cancel_delete_request",
+      "description": "Cancel a pending delete request.",
+      "mutation": true,
+      "danger": false,
+      "parameters": [
+        {"name": "request_id", "type": "str", "required": true, "description": "ID of the delete request to cancel"}
+      ],
+      "response_fields": [],
+      "notes": "Returns 204 No Content. Only pending requests can be cancelled."
+    },
+    {
+      "id": "ready",
+      "module": "status",
+      "method": "GET",
+      "path": "/ready",
+      "tool_name": "loki_ready",
+      "description": "Check if Loki is ready to accept traffic. Returns 'ready' when all components are up.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [],
+      "response_fields": [],
+      "notes": "Returns 200 with body 'ready' or 503 if not ready. Text response, not JSON."
+    },
+    {
+      "id": "metrics",
+      "module": "status",
+      "method": "GET",
+      "path": "/metrics",
+      "tool_name": "loki_metrics",
+      "description": "Get Prometheus metrics from this Loki instance. Returns metrics in Prometheus exposition format.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [],
+      "response_fields": [],
+      "notes": "Returns text/plain in Prometheus exposition format, not JSON."
+    },
+    {
+      "id": "config",
+      "module": "status",
+      "method": "GET",
+      "path": "/config",
+      "tool_name": "loki_config",
+      "description": "Get the current Loki configuration. Shows all runtime settings.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [],
+      "response_fields": [],
+      "notes": "Returns YAML-formatted configuration text."
+    },
+    {
+      "id": "services",
+      "module": "status",
+      "method": "GET",
+      "path": "/services",
+      "tool_name": "loki_services",
+      "description": "List all internal Loki services and their current states.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [],
+      "response_fields": [],
+      "notes": "Returns an HTML page listing services and states. Parse as text."
+    },
+    {
+      "id": "buildinfo",
+      "module": "status",
+      "method": "GET",
+      "path": "/loki/api/v1/status/buildinfo",
+      "tool_name": "loki_buildinfo",
+      "description": "Get Loki build information including version, revision, branch, and Go version.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [],
+      "response_fields": ["status", "data.version", "data.revision", "data.branch", "data.buildDate", "data.goVersion"],
+      "notes": ""
+    },
+    {
+      "id": "get_log_level",
+      "module": "status",
+      "method": "GET",
+      "path": "/log_level",
+      "tool_name": "loki_get_log_level",
+      "description": "Get the current log level of the Loki instance.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [],
+      "response_fields": ["message"],
+      "notes": ""
+    },
+    {
+      "id": "set_log_level",
+      "module": "status",
+      "method": "POST",
+      "path": "/log_level",
+      "tool_name": "loki_set_log_level",
+      "description": "Change the runtime log level of the Loki instance.",
+      "mutation": true,
+      "danger": false,
+      "parameters": [
+        {"name": "log_level", "type": "str", "required": true, "description": "New log level: 'debug', 'info', 'warn', or 'error'"}
+      ],
+      "response_fields": ["message"],
+      "notes": "Sent as form-encoded body: log_level=<value>"
+    },
+    {
+      "id": "flush",
+      "module": "admin",
+      "method": "POST",
+      "path": "/flush",
+      "tool_name": "loki_flush",
+      "description": "Flush all in-memory chunks to backing store. Forces immediate persistence.",
+      "mutation": true,
+      "danger": true,
+      "parameters": [],
+      "response_fields": [],
+      "notes": "Returns 204 No Content. Can impact performance during flush."
+    },
+    {
+      "id": "prepare_shutdown_status",
+      "module": "admin",
+      "method": "GET",
+      "path": "/ingester/prepare_shutdown",
+      "tool_name": "loki_prepare_shutdown_status",
+      "description": "Check the prepare-shutdown status of the ingester.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [],
+      "response_fields": [],
+      "notes": "Returns text with current preparation status"
+    },
+    {
+      "id": "prepare_shutdown",
+      "module": "admin",
+      "method": "POST",
+      "path": "/ingester/prepare_shutdown",
+      "tool_name": "loki_prepare_shutdown",
+      "description": "Signal the ingester to prepare for shutdown. Flushes data and stops accepting writes.",
+      "mutation": true,
+      "danger": true,
+      "parameters": [],
+      "response_fields": [],
+      "notes": "Returns 204 No Content. Initiates graceful shutdown preparation."
+    },
+    {
+      "id": "cancel_prepare_shutdown",
+      "module": "admin",
+      "method": "DELETE",
+      "path": "/ingester/prepare_shutdown",
+      "tool_name": "loki_cancel_prepare_shutdown",
+      "description": "Cancel a previously initiated prepare-shutdown. Resumes normal operation.",
+      "mutation": true,
+      "danger": false,
+      "parameters": [],
+      "response_fields": [],
+      "notes": "Returns 204 No Content"
+    },
+    {
+      "id": "shutdown_status",
+      "module": "admin",
+      "method": "GET",
+      "path": "/ingester/shutdown",
+      "tool_name": "loki_shutdown_status",
+      "description": "Check the shutdown status of the ingester.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [],
+      "response_fields": [],
+      "notes": "Returns text with current shutdown status"
+    },
+    {
+      "id": "shutdown",
+      "module": "admin",
+      "method": "POST",
+      "path": "/ingester/shutdown",
+      "tool_name": "loki_shutdown",
+      "description": "Trigger immediate shutdown of the ingester. DANGEROUS: causes data loss if chunks not flushed.",
+      "mutation": true,
+      "danger": true,
+      "parameters": [],
+      "response_fields": [],
+      "notes": "Returns 204 No Content. WARNING: May cause data loss. Use prepare_shutdown first."
+    },
+    {
+      "id": "format_query",
+      "module": "format",
+      "method": "GET",
+      "path": "/loki/api/v1/format_query",
+      "tool_name": "loki_format_query",
+      "description": "Format and validate a LogQL query. Returns the prettified form or an error.",
+      "mutation": false,
+      "danger": false,
+      "parameters": [
+        {"name": "query", "type": "str", "required": true, "description": "LogQL query string to format/validate"}
+      ],
+      "response_fields": ["status", "data"],
+      "notes": "Useful for validating LogQL syntax. Also accepts POST with form-encoded body."
+    }
+  ],
+  "high_level_tools": [
+    {
+      "tool_name": "loki_search_logs",
+      "description": "Search logs by host, container, unit, pattern, and severity without knowing LogQL. Builds the query internally.",
+      "module": "query"
+    },
+    {
+      "tool_name": "loki_error_summary",
+      "description": "Aggregate errors across containers for a host. Shows error counts, latest errors, and first-seen times.",
+      "module": "query"
+    },
+    {
+      "tool_name": "loki_volume_by_label",
+      "description": "Find the noisiest hosts/containers by log volume.",
+      "module": "index"
+    },
+    {
+      "tool_name": "loki_compare_hosts",
+      "description": "Compare logs across multiple hosts side-by-side.",
+      "module": "query"
+    },
+    {
+      "tool_name": "loki_get_overview",
+      "description": "System summary: build info, readiness, services, label inventory.",
+      "module": "status"
+    },
+    {
+      "tool_name": "loki_search_tools",
+      "description": "Keyword search across all registered tool names and descriptions.",
+      "module": null
+    },
+    {
+      "tool_name": "loki_report_issue",
+      "description": "Generate a structured bug report with reproduction steps.",
+      "module": null
+    },
+    {
+      "tool_name": "loki_validate_query",
+      "description": "Validate and format a LogQL query with friendly error messages.",
+      "module": "format"
+    }
+  ],
+  "modules": {
+    "query": {"description": "Log/metric queries, labels, series discovery", "endpoint_count": 5},
+    "index": {"description": "Index statistics and volume analysis", "endpoint_count": 3},
+    "patterns": {"description": "Log pattern detection and clustering", "endpoint_count": 1},
+    "ingest": {"description": "Push log entries to Loki", "endpoint_count": 1},
+    "rules": {"description": "Alerting and recording rule management", "endpoint_count": 7},
+    "delete": {"description": "Log deletion request management", "endpoint_count": 3},
+    "status": {"description": "Health, metrics, config, build info", "endpoint_count": 7},
+    "admin": {"description": "Flush, shutdown, ingester management", "endpoint_count": 5},
+    "format": {"description": "LogQL query formatting and validation", "endpoint_count": 1}
+  }
+}
