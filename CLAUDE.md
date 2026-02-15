@@ -128,8 +128,8 @@ docker compose -f docker/docker-compose.yml down
 
 ### Test Suite Summary
 
-- **20 unit tests**: naming conventions, spec parsing, module assignment, tool registration, confirm gates, danger warnings, module gating, readonly gating, tool discovery dict
-- **36 integration tests**: all 9 modules tested against live Loki in Docker. Covers status (8), query (6), index (3), ingest (2), delete (2), admin (3), high-level (10), module gating (2)
+- **24 unit tests**: naming conventions, spec parsing, module assignment, tool registration, confirm gates, danger warnings, module gating, readonly gating, tool discovery dict, exclude parameters, stats stripping, timestamp helpers, cross-references
+- **42 integration tests**: all 9 modules tested against live Loki in Docker. Covers status (8), query (6), index (3), ingest (2), delete (2), admin (3), high-level (16), module gating (2)
 
 ### Integration Test Patterns
 

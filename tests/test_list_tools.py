@@ -104,3 +104,39 @@ def test_tool_discovery_dict():
     dict_block = code[dict_start:dict_end]
     tool_entries = re.findall(r'"loki_\w+":', dict_block)
     assert len(tool_entries) == 42
+
+
+def test_exclude_parameter_on_search_tools():
+    """Verify exclude: str = '' exists on search_logs, error_summary, compare_hosts."""
+    code = GENERATED_SERVER.read_text()
+    for tool in ["loki_search_logs", "loki_error_summary", "loki_compare_hosts"]:
+        pattern = rf"async def {tool}\([^)]*exclude: str = \"\""
+        assert re.search(pattern, code, re.DOTALL), f"{tool} missing exclude parameter"
+
+
+def test_stats_stripping_in_unwrap():
+    """Verify _unwrap_loki_response strips the stats key."""
+    code = GENERATED_SERVER.read_text()
+    # Find the _unwrap_loki_response function
+    func_match = re.search(r"def _unwrap_loki_response\(.*?(?=\ndef )", code, re.DOTALL)
+    assert func_match, "Could not find _unwrap_loki_response"
+    func_code = func_match.group()
+    assert 'k != "stats"' in func_code, "stats stripping logic missing from _unwrap_loki_response"
+
+
+def test_timestamp_formatting_helpers():
+    """Verify _format_ns_timestamp and _format_log_values exist in generated code."""
+    code = GENERATED_SERVER.read_text()
+    assert "def _format_ns_timestamp(ns_str: str) -> str:" in code
+    assert "def _format_log_values(result: Any) -> None:" in code
+
+
+def test_cross_reference_in_volume_by_label():
+    """Verify loki_volume_by_label docstring mentions loki_index_volume."""
+    code = GENERATED_SERVER.read_text()
+    func_match = re.search(
+        r"async def loki_volume_by_label\(.*?(?=async def loki_|\Z)", code, re.DOTALL
+    )
+    assert func_match, "Could not find loki_volume_by_label"
+    func_code = func_match.group()
+    assert "loki_index_volume" in func_code, "loki_volume_by_label missing cross-reference to loki_index_volume"

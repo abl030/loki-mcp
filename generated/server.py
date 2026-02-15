@@ -92,6 +92,34 @@ def _parse_timestamp(value: str) -> str:
     return value
 
 
+def _format_ns_timestamp(ns_str: str) -> str:
+    """Convert a nanosecond timestamp string to human-readable RFC3339.
+
+    Converts '1770868733562049000' to '2026-02-12T11:58:53Z'.
+    Returns original string on failure.
+    """
+    try:
+        ns = int(ns_str)
+        dt = datetime.fromtimestamp(ns / 1e9, tz=timezone.utc)
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (ValueError, TypeError, OSError):
+        return str(ns_str)
+
+
+def _format_log_values(result: Any) -> None:
+    """Convert nanosecond timestamps in log stream results to RFC3339 in-place.
+
+    Walks result["result"][*]["values"] and converts each entry[0] timestamp.
+    """
+    if not isinstance(result, dict) or "result" not in result:
+        return
+    for stream in result["result"]:
+        values = stream.get("values", [])
+        for entry in values:
+            if len(entry) >= 1:
+                entry[0] = _format_ns_timestamp(entry[0])
+
+
 # ---------------------------------------------------------------------------
 # HTTP Client
 # ---------------------------------------------------------------------------
@@ -201,7 +229,10 @@ def _unwrap_loki_response(resp: httpx.Response) -> Any:
             msg = body.get("message", body.get("error", "Unknown error"))
             raise RuntimeError(f"Loki API error: {msg}")
         if "data" in body:
-            return body["data"]
+            data = body["data"]
+            if isinstance(data, dict) and "stats" in data:
+                data = {k: v for k, v in data.items() if k != "stats"}
+            return data
     return body
 
 
@@ -637,7 +668,7 @@ async def loki_index_volume(
 
     Known fields: host, container, unit, job, service_name
 
-    Note: Requires volume_enabled in Loki config. Filter on label names used in aggregation.
+    Note: Requires volume_enabled in Loki config. Filter on label names used in aggregation. For a simpler interface, use loki_volume_by_label which accepts a single 'label' parameter instead of requiring a LogQL query and targetLabels.
     """
     if not _module_enabled("index"):
         return _format_response({"error": "Module 'index' is not enabled. Set LOKI_MODULES to include it."})
@@ -1583,6 +1614,7 @@ async def loki_search_logs(
     container: str = "",
     unit: str = "",
     pattern: str = "",
+    exclude: str = "",
     severity: str = "",
     start: str = "1h",
     end: str = "",
@@ -1597,7 +1629,8 @@ async def loki_search_logs(
         host: Filter by host label (exact match).
         container: Filter by container label (exact match).
         unit: Filter by systemd unit label (exact match).
-        pattern: Regex pattern to filter log lines (e.g. 'error|timeout').
+        pattern: Regex pattern to include log lines (e.g. 'error|timeout'). Uses |~ (include match).
+        exclude: Regex pattern to exclude log lines (e.g. 'healthcheck|ping'). Uses !~ (exclude match).
         severity: Minimum severity: 'debug', 'info', 'warn', 'error', 'critical', 'fatal'.
         start: Start time — duration like '1h', '30m' or RFC3339. Default: 1h ago.
         end: End time — duration or RFC3339. Default: now.
@@ -1626,6 +1659,8 @@ async def loki_search_logs(
     pipeline = ""
     if pattern:
         pipeline += f' |~ "{pattern}"'
+    if exclude:
+        pipeline += f' !~ "{exclude}"'
 
     severity_levels = {"debug": 0, "info": 1, "warn": 2, "warning": 2, "error": 3, "critical": 4, "fatal": 5}
     if severity and severity.lower() in severity_levels:
@@ -1649,6 +1684,7 @@ async def loki_search_logs(
     if err := _handle_error(resp, "loki_search_logs"):
         return err
     result = _unwrap_loki_response(resp)
+    _format_log_values(result)
 
     # Format output
     summary = f"Query: {query}"
@@ -1662,6 +1698,7 @@ async def loki_search_logs(
 @mcp.tool()
 async def loki_error_summary(
     host: str = "",
+    exclude: str = "",
     start: str = "1h",
     end: str = "",
     limit: int = 50,
@@ -1672,6 +1709,7 @@ async def loki_error_summary(
 
     Args:
         host: Filter by host label. Leave empty for all hosts.
+        exclude: Regex pattern to exclude log lines (e.g. 'healthcheck|ping'). Uses !~ (exclude match).
         start: Start time (default: 1h ago).
         end: End time (default: now).
         limit: Maximum entries per stream (default: 50).
@@ -1681,6 +1719,8 @@ async def loki_error_summary(
 
     selector = "{" + f'host="{host}"' + "}" if host else "{}"
     query = selector + ' |~ "(?i)(error|fail|exception|panic|fatal)"'
+    if exclude:
+        query += f' !~ "{exclude}"'
 
     client = await _get_client()
     params: dict[str, str] = {"query": query, "limit": str(limit), "direction": "backward"}
@@ -1706,7 +1746,7 @@ async def loki_error_summary(
             summary_data[key]["count"] += len(values)
             if values:
                 summary_data[key]["latest"] = values[0][1][:200]
-                summary_data[key]["first_seen"] = values[-1][0]
+                summary_data[key]["first_seen"] = _format_ns_timestamp(values[-1][0])
 
     return _format_response(
         {"query": query, "error_summary": summary_data},
@@ -1728,6 +1768,9 @@ async def loki_volume_by_label(
         start: Start time (default: 1h ago).
         end: End time (default: now).
         limit: Maximum results (default: 20).
+
+    Note: This is a simplified wrapper around loki_index_volume. For advanced usage
+    (custom LogQL selectors, multiple targetLabels, field filtering), use loki_index_volume directly.
     """
     if not _module_enabled("index"):
         return _format_response({"error": "Module 'index' is not enabled."})
@@ -1750,6 +1793,7 @@ async def loki_volume_by_label(
 async def loki_compare_hosts(
     hosts: str,
     pattern: str = "",
+    exclude: str = "",
     start: str = "1h",
     end: str = "",
     limit: int = 50,
@@ -1758,7 +1802,8 @@ async def loki_compare_hosts(
 
     Args:
         hosts: Comma-separated host names (e.g. 'doc1,igpu,wsl').
-        pattern: Optional regex pattern to filter log lines.
+        pattern: Regex pattern to include log lines. Uses |~ (include match).
+        exclude: Regex pattern to exclude log lines (e.g. 'healthcheck|ping'). Uses !~ (exclude match).
         start: Start time (default: 1h ago).
         end: End time (default: now).
         limit: Maximum entries per host (default: 50).
@@ -1775,6 +1820,8 @@ async def loki_compare_hosts(
     query = selector
     if pattern:
         query += f' |~ "{pattern}"'
+    if exclude:
+        query += f' !~ "{exclude}"'
 
     client = await _get_client()
     params: dict[str, str] = {"query": query, "limit": str(limit), "direction": "backward"}
@@ -1787,6 +1834,7 @@ async def loki_compare_hosts(
     if err := _handle_error(resp, "loki_compare_hosts"):
         return err
     result = _unwrap_loki_response(resp)
+    _format_log_values(result)
 
     # Group by host
     by_host: dict[str, int] = {}
@@ -1892,10 +1940,10 @@ _ALL_TOOLS: dict[str, str] = {
     "loki_shutdown_status": "Check the shutdown status of the ingester.",
     "loki_shutdown": "Trigger immediate shutdown of the ingester. DANGEROUS: causes data loss if chunks not flushed.",
     "loki_format_query": "Format and validate a LogQL query. Returns the prettified form or an error.",
-    "loki_search_logs": "Search logs by host/container/unit/pattern/severity without LogQL",
+    "loki_search_logs": "Search logs by host/container/unit/pattern/severity without LogQL. Supports include and exclude patterns.",
     "loki_error_summary": "Aggregate errors across containers for a host",
     "loki_volume_by_label": "Find noisiest hosts/containers by log volume",
-    "loki_compare_hosts": "Compare logs across multiple hosts side-by-side",
+    "loki_compare_hosts": "Compare logs across multiple hosts side-by-side. Supports include and exclude patterns.",
     "loki_get_overview": "System summary: build info, readiness, labels, hosts",
     "loki_search_tools": "Search for tools by keyword",
     "loki_report_issue": "Generate a structured bug report",

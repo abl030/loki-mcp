@@ -375,6 +375,75 @@ class TestHighLevel:
         # Should handle gracefully
         assert result  # non-empty
 
+    def test_search_logs_with_exclude(self, loki_url):
+        """Verify exclude parameter works and !~ appears in query output."""
+        srv = _load_server()
+        result = _call(srv.loki_search_logs,
+            host="test-host-1", pattern=".", exclude="healthcheck", start="1h", limit=10
+        )
+        assert "Query:" in result
+        assert '!~ "healthcheck"' in result
+
+    def test_search_logs_response_no_stats(self, loki_url):
+        """Verify stats blob is stripped from search_logs response."""
+        srv = _load_server()
+        result = _call(srv.loki_search_logs,
+            host="test-host-1", start="1h", limit=10
+        )
+        # The JSON portion should not contain "stats"
+        parts = result.split("\n\n", 1)
+        if len(parts) == 2:
+            data = json.loads(parts[1])
+            assert "stats" not in data, "stats blob should be stripped from response"
+
+    def test_search_logs_timestamps_readable(self, loki_url):
+        """Verify timestamps in search_logs values are RFC3339, not raw nanoseconds."""
+        srv = _load_server()
+        result = _call(srv.loki_search_logs,
+            host="test-host-1", start="1h", limit=10
+        )
+        parts = result.split("\n\n", 1)
+        if len(parts) == 2:
+            data = json.loads(parts[1])
+            if isinstance(data, dict) and "result" in data:
+                for stream in data["result"]:
+                    for entry in stream.get("values", []):
+                        # RFC3339 timestamps contain "T", nanosecond strings don't
+                        assert "T" in entry[0], f"Timestamp not RFC3339: {entry[0]}"
+
+    def test_error_summary_with_exclude(self, loki_url):
+        """Verify exclude parameter works on error_summary."""
+        srv = _load_server()
+        result = _call(srv.loki_error_summary,
+            host="test-host-1", exclude="healthcheck", start="1h"
+        )
+        assert '!~ "healthcheck"' in result
+
+    def test_compare_hosts_with_exclude(self, loki_url):
+        """Verify exclude parameter works on compare_hosts and !~ appears in query."""
+        srv = _load_server()
+        result = _call(srv.loki_compare_hosts,
+            hosts="test-host-1,test-host-2", exclude="ping", start="1h"
+        )
+        assert "Comparing" in result
+        assert '!~ "ping"' in result
+
+    def test_query_range_keeps_raw_timestamps(self, loki_url):
+        """Direct API tool should still return raw nanosecond timestamps."""
+        srv = _load_server()
+        result = _call(srv.loki_query_range,
+            query='{host=~".+"}', start="1h", limit=5
+        )
+        parts = result.split("\n\n", 1)
+        if len(parts) == 2:
+            data = json.loads(parts[1])
+            if isinstance(data, dict) and "result" in data:
+                for stream in data["result"]:
+                    for entry in stream.get("values", []):
+                        # Raw nanosecond timestamps are long digit strings (18+ digits)
+                        assert entry[0].isdigit() and len(entry[0]) > 15, \
+                            f"Expected raw nanosecond timestamp, got: {entry[0]}"
+
 
 # ===========================================================================
 # Module gating

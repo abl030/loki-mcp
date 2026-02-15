@@ -141,7 +141,7 @@
       "filter_path": "result",
       "filter_label_key": "metric",
       "known_fields": ["host", "container", "unit", "job", "service_name"],
-      "notes": "Requires volume_enabled in Loki config. Filter on label names used in aggregation."
+      "notes": "Requires volume_enabled in Loki config. Filter on label names used in aggregation. For a simpler interface, use loki_volume_by_label which accepts a single 'label' parameter instead of requiring a LogQL query and targetLabels."
     },
     {
       "id": "index_volume_range",
