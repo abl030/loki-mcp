@@ -381,8 +381,9 @@ class TestHighLevel:
         result = _call(srv.loki_search_logs,
             host="test-host-1", pattern=".", exclude="healthcheck", start="1h", limit=10
         )
+        # Query appears in the summary line (not JSON-encoded)
         assert "Query:" in result
-        assert '!~ "healthcheck"' in result
+        assert '!~ "healthcheck"' in result.split("\n")[0]
 
     def test_search_logs_response_no_stats(self, loki_url):
         """Verify stats blob is stripped from search_logs response."""
@@ -417,7 +418,8 @@ class TestHighLevel:
         result = _call(srv.loki_error_summary,
             host="test-host-1", exclude="healthcheck", start="1h"
         )
-        assert '!~ "healthcheck"' in result
+        data = json.loads(result.split("\n\n", 1)[1])
+        assert '!~ "healthcheck"' in data["query"]
 
     def test_compare_hosts_with_exclude(self, loki_url):
         """Verify exclude parameter works on compare_hosts and !~ appears in query."""
@@ -426,7 +428,8 @@ class TestHighLevel:
             hosts="test-host-1,test-host-2", exclude="ping", start="1h"
         )
         assert "Comparing" in result
-        assert '!~ "ping"' in result
+        data = json.loads(result.split("\n\n", 1)[1])
+        assert '!~ "ping"' in data["query"]
 
     def test_query_range_keeps_raw_timestamps(self, loki_url):
         """Direct API tool should still return raw nanosecond timestamps."""
