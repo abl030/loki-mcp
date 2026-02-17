@@ -1613,6 +1613,7 @@ async def loki_search_logs(
     host: str = "",
     container: str = "",
     unit: str = "",
+    labels: dict[str, str] | None = None,
     pattern: str = "",
     exclude: str = "",
     severity: str = "",
@@ -1629,6 +1630,9 @@ async def loki_search_logs(
         host: Filter by host label (exact match).
         container: Filter by container label (exact match).
         unit: Filter by systemd unit label (exact match).
+        labels: Dict of extra label matchers (e.g. {"source": "syslog", "namespace": "prod", "job": "api", "transport": "tcp"}).
+            Merges with host/container/unit. Use loki_list_labels to discover available label names,
+            and loki_list_label_values to see values for a given label.
         pattern: Regex pattern to include log lines (e.g. 'error|timeout'). Uses |~ (include match).
         exclude: Regex pattern to exclude log lines (e.g. 'healthcheck|ping'). Uses !~ (exclude match).
         severity: Minimum severity: 'debug', 'info', 'warn', 'error', 'critical', 'fatal'.
@@ -1640,19 +1644,21 @@ async def loki_search_logs(
     if not _module_enabled("query"):
         return _format_response({"error": "Module 'query' is not enabled."})
 
-    # Build stream selector
-    labels = {}
+    # Build stream selector — merge convenience params with labels dict
+    merged_labels: dict[str, str] = {}
     if host:
-        labels["host"] = host
+        merged_labels["host"] = host
     if container:
-        labels["container"] = container
+        merged_labels["container"] = container
     if unit:
-        labels["unit"] = unit
+        merged_labels["unit"] = unit
+    if labels:
+        merged_labels.update(labels)
 
-    if not labels:
+    if not merged_labels:
         selector = '{}'
     else:
-        parts = [f'{k}="{v}"' for k, v in labels.items()]
+        parts = [f'{k}="{v}"' for k, v in merged_labels.items()]
         selector = "{" + ", ".join(parts) + "}"
 
     # Build pipeline
@@ -1681,23 +1687,68 @@ async def loki_search_logs(
         params["end"] = _parse_timestamp(end)
 
     resp = await client.request("GET", "/loki/api/v1/query_range", params=params)
+
+    # Issue #4: Friendly error when no labels provided
     if err := _handle_error(resp, "loki_search_logs"):
+        if "at least one" in err.lower() and not merged_labels:
+            try:
+                labels_resp = await client.request("GET", "/loki/api/v1/labels")
+                available = _unwrap_loki_response(labels_resp) if labels_resp.is_success else []
+            except Exception:
+                available = []
+            return _format_response({
+                "error": True,
+                "tool": "loki_search_logs",
+                "message": "No label matchers provided. Loki requires at least one label to search.",
+                "hint": (
+                    "Use the convenience params (host, container, unit) or the labels dict "
+                    "to specify at least one label matcher. "
+                    "Use loki_list_labels to discover available label names."
+                ),
+                "available_labels": available,
+                "examples": [
+                    'host="myhost"',
+                    'labels={"namespace": "prod"}',
+                    'labels={"source": "syslog", "job": "api"}',
+                ],
+            }, "No labels specified — Loki needs at least one label matcher")
         return err
     result = _unwrap_loki_response(resp)
     _format_log_values(result)
 
     # Format output
     summary = f"Query: {query}"
+    total_lines = 0
     if isinstance(result, dict) and "result" in result:
         streams = result["result"]
         total_lines = sum(len(s.get("values", [])) for s in streams)
         summary += f"\nStreams: {len(streams)}, Log lines: {total_lines}"
+
+    # Issue #3: Zero-result hints
+    if total_lines == 0 and merged_labels:
+        hints: dict[str, Any] = {"message": "No results found. Check that your label values are correct."}
+        available_values: dict[str, list] = {}
+        try:
+            for label_name in merged_labels:
+                val_resp = await client.request("GET", f"/loki/api/v1/label/{label_name}/values")
+                if val_resp.is_success:
+                    vals = _unwrap_loki_response(val_resp)
+                    if isinstance(vals, list):
+                        available_values[label_name] = vals[:20]
+        except Exception:
+            pass
+        if available_values:
+            hints["available_values"] = available_values
+        if isinstance(result, dict):
+            result["hints"] = hints
+
     return _format_response(result, summary)
 
 
 @mcp.tool()
 async def loki_error_summary(
     host: str = "",
+    labels: dict[str, str] | None = None,
     exclude: str = "",
     start: str = "1h",
     end: str = "",
@@ -1709,6 +1760,8 @@ async def loki_error_summary(
 
     Args:
         host: Filter by host label. Leave empty for all hosts.
+        labels: Dict of extra label matchers (e.g. {"namespace": "prod", "source": "syslog"}).
+            Merges with host param. Use loki_list_labels to discover available label names.
         exclude: Regex pattern to exclude log lines (e.g. 'healthcheck|ping'). Uses !~ (exclude match).
         start: Start time (default: 1h ago).
         end: End time (default: now).
@@ -1717,7 +1770,17 @@ async def loki_error_summary(
     if not _module_enabled("query"):
         return _format_response({"error": "Module 'query' is not enabled."})
 
-    selector = "{" + f'host="{host}"' + "}" if host else "{}"
+    merged_labels: dict[str, str] = {}
+    if host:
+        merged_labels["host"] = host
+    if labels:
+        merged_labels.update(labels)
+
+    if merged_labels:
+        parts = [f'{k}="{v}"' for k, v in merged_labels.items()]
+        selector = "{" + ", ".join(parts) + "}"
+    else:
+        selector = "{}"
     query = selector + ' |~ "(?i)(error|fail|exception|panic|fatal)"'
     if exclude:
         query += f' !~ "{exclude}"'
@@ -1738,8 +1801,8 @@ async def loki_error_summary(
     summary_data: dict[str, dict] = {}
     if isinstance(result, dict) and "result" in result:
         for stream in result["result"]:
-            labels = stream.get("stream", {})
-            key = labels.get("container", labels.get("unit", labels.get("host", "unknown")))
+            stream_labels = stream.get("stream", {})
+            key = stream_labels.get("container", stream_labels.get("unit", stream_labels.get("host", "unknown")))
             values = stream.get("values", [])
             if key not in summary_data:
                 summary_data[key] = {"count": 0, "latest": "", "first_seen": ""}
@@ -1792,6 +1855,7 @@ async def loki_volume_by_label(
 @mcp.tool()
 async def loki_compare_hosts(
     hosts: str,
+    labels: dict[str, str] | None = None,
     pattern: str = "",
     exclude: str = "",
     start: str = "1h",
@@ -1802,6 +1866,8 @@ async def loki_compare_hosts(
 
     Args:
         hosts: Comma-separated host names (e.g. 'doc1,igpu,wsl').
+        labels: Dict of extra label matchers (e.g. {"container": "nginx", "namespace": "prod"}).
+            Added alongside the host regex selector. Use loki_list_labels to discover available label names.
         pattern: Regex pattern to include log lines. Uses |~ (include match).
         exclude: Regex pattern to exclude log lines (e.g. 'healthcheck|ping'). Uses !~ (exclude match).
         start: Start time (default: 1h ago).
@@ -1816,7 +1882,10 @@ async def loki_compare_hosts(
         return _format_response({"error": "At least one host is required."})
 
     host_regex = "|".join(host_list)
-    selector = '{host=~"' + host_regex + '"}'
+    label_parts = [f'host=~"{host_regex}"']
+    if labels:
+        label_parts.extend(f'{k}="{v}"' for k, v in labels.items())
+    selector = "{" + ", ".join(label_parts) + "}"
     query = selector
     if pattern:
         query += f' |~ "{pattern}"'
@@ -1940,10 +2009,10 @@ _ALL_TOOLS: dict[str, str] = {
     "loki_shutdown_status": "Check the shutdown status of the ingester.",
     "loki_shutdown": "Trigger immediate shutdown of the ingester. DANGEROUS: causes data loss if chunks not flushed.",
     "loki_format_query": "Format and validate a LogQL query. Returns the prettified form or an error.",
-    "loki_search_logs": "Search logs by host/container/unit/pattern/severity without LogQL. Supports include and exclude patterns.",
-    "loki_error_summary": "Aggregate errors across containers for a host",
+    "loki_search_logs": "Search logs by host/container/unit/pattern/severity without LogQL. Supports labels dict for any label, include and exclude patterns.",
+    "loki_error_summary": "Aggregate errors across containers for a host. Supports labels dict for extra filtering.",
     "loki_volume_by_label": "Find noisiest hosts/containers by log volume",
-    "loki_compare_hosts": "Compare logs across multiple hosts side-by-side. Supports include and exclude patterns.",
+    "loki_compare_hosts": "Compare logs across multiple hosts side-by-side. Supports labels dict, include and exclude patterns.",
     "loki_get_overview": "System summary: build info, readiness, labels, hosts",
     "loki_search_tools": "Search for tools by keyword",
     "loki_report_issue": "Generate a structured bug report",

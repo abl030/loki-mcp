@@ -447,6 +447,68 @@ class TestHighLevel:
                         assert entry[0].isdigit() and len(entry[0]) > 15, \
                             f"Expected raw nanosecond timestamp, got: {entry[0]}"
 
+    def test_search_logs_with_labels_dict(self, loki_url):
+        """Verify labels dict works as label matcher on search_logs."""
+        srv = _load_server()
+        result = _call(srv.loki_search_logs,
+            labels={"host": "test-host-1"}, start="1h", limit=10
+        )
+        assert "Query:" in result
+        assert 'host="test-host-1"' in result
+
+    def test_search_logs_labels_merged_with_host(self, loki_url):
+        """Verify host param and labels dict both appear in query."""
+        srv = _load_server()
+        result = _call(srv.loki_search_logs,
+            host="test-host-1", labels={"container": "test-container-1"}, start="1h", limit=10
+        )
+        assert "Query:" in result
+        query_line = result.split("\n")[0]
+        assert 'host="test-host-1"' in query_line
+        assert 'container="test-container-1"' in query_line
+
+    def test_search_logs_no_labels_friendly_error(self, loki_url):
+        """Verify no labels gives friendly error, not raw Loki error."""
+        srv = _load_server()
+        result = _call(srv.loki_search_logs, start="1h", limit=10)
+        data = json.loads(result.split("\n\n", 1)[1])
+        assert data.get("error") is True
+        assert "No label matchers provided" in data.get("message", "") or "at least one" in data.get("message", "").lower()
+        assert "available_labels" in data
+
+    def test_search_logs_zero_results_hints(self, loki_url):
+        """Verify zero results returns hints with available values."""
+        srv = _load_server()
+        result = _call(srv.loki_search_logs,
+            host="nonexistent-xyz-999", start="1h", limit=10
+        )
+        parts = result.split("\n\n", 1)
+        assert len(parts) == 2
+        data = json.loads(parts[1])
+        assert "hints" in data
+        assert "available_values" in data["hints"]
+        assert "host" in data["hints"]["available_values"]
+
+    def test_error_summary_with_labels(self, loki_url):
+        """Verify labels dict works on error_summary."""
+        srv = _load_server()
+        result = _call(srv.loki_error_summary,
+            labels={"host": "test-host-1"}, start="1h"
+        )
+        data = json.loads(result.split("\n\n", 1)[1])
+        assert 'host="test-host-1"' in data["query"]
+
+    def test_compare_hosts_with_labels(self, loki_url):
+        """Verify labels dict works on compare_hosts."""
+        srv = _load_server()
+        result = _call(srv.loki_compare_hosts,
+            hosts="test-host-1,test-host-2",
+            labels={"container": "test-container-1"},
+            start="1h",
+        )
+        data = json.loads(result.split("\n\n", 1)[1])
+        assert 'container="test-container-1"' in data["query"]
+
 
 # ===========================================================================
 # Module gating

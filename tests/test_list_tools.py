@@ -140,3 +140,62 @@ def test_cross_reference_in_volume_by_label():
     assert func_match, "Could not find loki_volume_by_label"
     func_code = func_match.group()
     assert "loki_index_volume" in func_code, "loki_volume_by_label missing cross-reference to loki_index_volume"
+
+
+def test_labels_parameter_on_search_tools():
+    """Verify labels: dict[str, str] | None = None exists on search_logs, error_summary, compare_hosts."""
+    code = GENERATED_SERVER.read_text()
+    for tool in ["loki_search_logs", "loki_error_summary", "loki_compare_hosts"]:
+        pattern = rf"async def {tool}\([^)]*labels: dict\[str, str\] \| None = None"
+        assert re.search(pattern, code, re.DOTALL), f"{tool} missing labels parameter"
+
+
+def test_search_logs_docstring_mentions_labels():
+    """Verify search_logs docstring documents labels, cross-refs loki_list_labels, and has example label names."""
+    code = GENERATED_SERVER.read_text()
+    func_match = re.search(
+        r"async def loki_search_logs\(.*?(?=async def loki_|\Z)", code, re.DOTALL
+    )
+    assert func_match, "Could not find loki_search_logs"
+    func_code = func_match.group()
+    # Extract docstring
+    doc_match = re.search(r'"""(.*?)"""', func_code, re.DOTALL)
+    assert doc_match, "Could not find loki_search_logs docstring"
+    docstring = doc_match.group(1)
+    assert "labels" in docstring, "docstring missing 'labels'"
+    assert "loki_list_labels" in docstring, "docstring missing cross-reference to loki_list_labels"
+    assert "source" in docstring or "namespace" in docstring, "docstring missing example label names"
+
+
+def test_search_logs_friendly_error_logic():
+    """Verify search_logs contains friendly error message for missing labels."""
+    code = GENERATED_SERVER.read_text()
+    func_match = re.search(
+        r"async def loki_search_logs\(.*?(?=async def loki_|\Z)", code, re.DOTALL
+    )
+    assert func_match, "Could not find loki_search_logs"
+    func_code = func_match.group()
+    assert "No label matchers provided" in func_code or "at least one" in func_code.lower(), \
+        "search_logs missing friendly error logic"
+    assert "available_labels" in func_code, "search_logs missing available_labels in friendly error"
+
+
+def test_search_logs_zero_result_hints():
+    """Verify search_logs contains zero-result hints logic."""
+    code = GENERATED_SERVER.read_text()
+    func_match = re.search(
+        r"async def loki_search_logs\(.*?(?=async def loki_|\Z)", code, re.DOTALL
+    )
+    assert func_match, "Could not find loki_search_logs"
+    func_code = func_match.group()
+    assert "hints" in func_code, "search_logs missing hints logic"
+    assert "available_values" in func_code, "search_logs missing available_values in hints"
+
+
+def test_tool_discovery_mentions_labels():
+    """Verify _ALL_TOOLS dict entries for search tools mention labels."""
+    code = GENERATED_SERVER.read_text()
+    dict_start = code.index("_ALL_TOOLS: dict[str, str] = {")
+    dict_end = code.index("}", dict_start) + 1
+    dict_block = code[dict_start:dict_end]
+    assert "labels dict" in dict_block, "_ALL_TOOLS missing 'labels dict' mention"
